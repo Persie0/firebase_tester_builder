@@ -2,11 +2,6 @@ name: play console auto
 
 on:
   workflow_dispatch:
-    inputs:
-      repo_url:
-        description: 'GitHub repository URL (e.g., https://github.com/owner/repo)'
-        required: true
-        type: string
       build_apk:
         description: 'Build and upload Universal APK'
         required: false
@@ -23,15 +18,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
-      - name: Extract Repository Owner/Repo
-        id: extract_repo
-        run: |
-          REPO_PATH=$(echo "${{ github.event.inputs.repo_url }}" | sed -e 's|https://github.com/||' -e 's|\.git$||')
-          echo "REPO_PATH=$REPO_PATH" >> $GITHUB_OUTPUT
-
       - uses: actions/checkout@v4
         with:
-          repository: ${{ steps.extract_repo.outputs.REPO_PATH }}
+          repository: 'Persie0/noise_remover'
+          token: ${{ secrets.GH_TOKEN }}
 
       - uses: actions/setup-java@v4
         with:
@@ -114,30 +104,17 @@ jobs:
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: play store bundle
-          path: build/app/outputs/bundle/release/app-release.aab
-          retention-days: 3
-
       - name: Download bundletool
-        if: github.event.inputs.build_apk == 'true'
+        if: github.event.inputs.build_apk == 'true' || github.event.inputs.run_tests == 'true'
         run: |
           wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
       - name: Extract APK from AAB
-        if: github.event.inputs.build_apk == 'true'
+        if: github.event.inputs.build_apk == 'true' || github.event.inputs.run_tests == 'true'
         run: |
           java -jar bundletool.jar build-apks --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks=android/app/key.jks --ks-pass=pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias=my-key-alias --key-pass=pass:${{ secrets.KEY_PASSWORD }}
           unzip app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
-
-      - uses: actions/upload-artifact@v4
-        if: github.event.inputs.build_apk == 'true'
-        with:
-          name: app release
-          path: app-release.apk
-          retention-days: 3
 
       - name: Upload Android Release to Play Store
         uses: r0adkll/upload-google-play@v1
@@ -161,10 +138,10 @@ jobs:
         if: github.event.inputs.run_tests == 'true'
         run: |
           gcloud firebase test android run \
-            --app=build/app/outputs/bundle/release/app-release.aab \
+            --app=app-release.apk \
             --type=robo \
             --device=model=redfin,version=34 \
-            --timeout=60s \
+            --timeout=120s \
             --no-auto-google-login
 
       - name: Stop Gradle daemons
