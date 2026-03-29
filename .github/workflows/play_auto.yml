@@ -1,4 +1,4 @@
-name: play console auto
+name: Noise Remover
 
 on:
   workflow_dispatch:
