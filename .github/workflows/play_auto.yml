@@ -1,0 +1,174 @@
+name: play console auto
+
+on:
+  workflow_dispatch:
+    inputs:
+      repo_url:
+        description: 'GitHub repository URL (e.g., https://github.com/owner/repo)'
+        required: true
+        type: string
+      build_apk:
+        description: 'Build and upload Universal APK'
+        required: false
+        type: boolean
+        default: false
+      run_tests:
+        description: 'Run Robo tests on Firebase Test Lab'
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Extract Repository Owner/Repo
+        id: extract_repo
+        run: |
+          REPO_PATH=$(echo "${{ github.event.inputs.repo_url }}" | sed -e 's|https://github.com/||' -e 's|\.git$||')
+          echo "REPO_PATH=$REPO_PATH" >> $GITHUB_OUTPUT
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.extract_repo.outputs.REPO_PATH }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21.x'
+
+      - name: Update KeyStore password in gradle properties
+        run: |
+          if [ -f android/key.properties ]; then
+            sed -i "s/#{KEYSTORE_PASS}#/${{ secrets.STORE_PASSWORD }}/g" android/key.properties
+            sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ secrets.KEY_PASSWORD }}/g" android/key.properties
+          else
+            echo "::warning::android/key.properties not found in the repository."
+          fi
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Get Package Name
+        id: get_package_name
+        run: |
+          # Try to get applicationId from build.gradle
+          PACKAGE_NAME=$(grep -oP 'applicationId\s*=\s*"\K[^"]+' android/app/build.gradle || grep -oP "applicationId\s*=\s*'\K[^']+" android/app/build.gradle || true)
+          
+          # Fallback to namespace if applicationId is not found
+          if [ -z "$PACKAGE_NAME" ]; then
+            PACKAGE_NAME=$(grep -oP 'namespace\s*=\s*"\K[^"]+' android/app/build.gradle || grep -oP "namespace\s*=\s*'\K[^']+" android/app/build.gradle || true)
+          fi
+          
+          if [ -z "$PACKAGE_NAME" ]; then
+             echo "::error::Could not extract package name from android/app/build.gradle"
+             exit 1
+          fi
+          
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
+          echo "Extracted Package Name: $PACKAGE_NAME"
+
+      - name: Update gradle.properties
+        run: |
+          touch android/gradle.properties
+          sed -i '/org.gradle.jvmargs=/d' android/gradle.properties
+          echo "org.gradle.jvmargs=-Xms4g -Xmx12g -XX:MaxMetaspaceSize=512m -XX:+UseG1GC" >> android/gradle.properties
+          sed -i '/org.gradle.daemon=/d' android/gradle.properties
+          echo "org.gradle.daemon=false" >> android/gradle.properties
+          sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
+          echo "org.gradle.vfs.watch=false" >> android/gradle.properties
+          echo "Updated gradle.properties with high-performance settings while preserving other properties."
+
+      - run: flutter pub get
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Free Disk Space
+        uses: endersonmenezes/free-disk-space@v2
+        with:
+          remove_android: false
+          remove_dotnet: false
+          remove_haskell: true
+          remove_tool_cache: false
+          remove_swap: false
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift"
+          testing: false
+
+
+      - name: Build
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Xms4g -Xmx12g -XX:MaxMetaspaceSize=512m -XX:+UseG1GC"
+        run: flutter build appbundle --obfuscate --split-debug-info=./build
+
+      - name: Sentry Upload
+        run: |
+          if grep -q "sentry_dart_plugin" pubspec.yaml; then
+            flutter packages pub run sentry_dart_plugin
+          else
+            echo "Sentry plugin not found in pubspec.yaml, skipping upload."
+          fi
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: play store bundle
+          path: build/app/outputs/bundle/release/app-release.aab
+          retention-days: 3
+
+      - name: Download bundletool
+        if: github.event.inputs.build_apk == 'true'
+        run: |
+          wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
+
+      - name: Extract APK from AAB
+        if: github.event.inputs.build_apk == 'true'
+        run: |
+          java -jar bundletool.jar build-apks --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks=android/app/key.jks --ks-pass=pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias=my-key-alias --key-pass=pass:${{ secrets.KEY_PASSWORD }}
+          unzip app.apks -d extracted_apk
+          mv extracted_apk/universal.apk app-release.apk
+
+      - uses: actions/upload-artifact@v4
+        if: github.event.inputs.build_apk == 'true'
+        with:
+          name: app release
+          path: app-release.apk
+          retention-days: 3
+
+      - name: Upload Android Release to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ env.PACKAGE_NAME }}
+          releaseFiles: build/app/outputs/bundle/release/app-release.aab
+          track: internal
+
+      - name: Authenticate to Google Cloud
+        if: github.event.inputs.run_tests == 'true'
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      - name: Set up Cloud SDK
+        if: github.event.inputs.run_tests == 'true'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run Tests on Firebase Test Lab
+        if: github.event.inputs.run_tests == 'true'
+        run: |
+          gcloud firebase test android run \
+            --app=build/app/outputs/bundle/release/app-release.aab \
+            --type=robo \
+            --device=model=redfin,version=34 \
+            --timeout=60s \
+            --no-auto-google-login
+
+      - name: Stop Gradle daemons
+        if: always()
+        run: |
+          cd android && ./gradlew --stop || true
+          pkill -f GradleDaemon || true
