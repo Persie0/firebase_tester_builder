@@ -30,11 +30,13 @@ jobs:
 
       - name: Update KeyStore password in gradle properties
         run: |
-          if [ -f android/key.properties ]; then
-            sed -i "s/#{KEYSTORE_PASS}#/${{ secrets.STORE_PASSWORD }}/g" android/key.properties
-            sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ secrets.KEY_PASSWORD }}/g" android/key.properties
+          PROPERTIES_FILE=$(find . -name "key.properties" | grep "android/" | head -n 1 || find . -name "key.properties" | head -n 1)
+          if [ -f "$PROPERTIES_FILE" ]; then
+            sed -i "s/#{KEYSTORE_PASS}#/${{ secrets.STORE_PASSWORD }}/g" "$PROPERTIES_FILE"
+            sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ secrets.KEY_PASSWORD }}/g" "$PROPERTIES_FILE"
+            echo "Updated $PROPERTIES_FILE"
           else
-            echo "::warning::android/key.properties not found in the repository."
+            echo "::warning::key.properties not found in the repository."
           fi
 
       - uses: subosito/flutter-action@v2
@@ -44,16 +46,20 @@ jobs:
       - name: Get Package Name
         id: get_package_name
         run: |
-          # Try to get applicationId from build.gradle
-          PACKAGE_NAME=$(grep -oP 'applicationId\s*=\s*"\K[^"]+' android/app/build.gradle || grep -oP "applicationId\s*=\s*'\K[^']+" android/app/build.gradle || true)
+          # Find any build.gradle or build.gradle.kts in an app folder
+          FILES=$(find . -name "build.gradle" -o -name "build.gradle.kts" | grep "/app/" | grep -v "/build/" | grep -v "/\.dart_tool/" || find . -name "build.gradle" -o -name "build.gradle.kts" | grep -v "/build/" | grep -v "/\.dart_tool/")
+          PACKAGE_NAME=""
+          for FILE in $FILES; do
+              # Try to extract applicationId or namespace
+              PACKAGE_NAME=$(grep -oP '(applicationId|namespace)\s*=\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1 || grep -oP '(applicationId|namespace)\s*=\s*\K[a-zA-Z0-9._]+' "$FILE" | head -n 1)
+              if [ -n "$PACKAGE_NAME" ]; then
+                echo "Found package name \"$PACKAGE_NAME\" in $FILE"
+                break
+              fi
+          done
           
-          # Fallback to namespace if applicationId is not found
           if [ -z "$PACKAGE_NAME" ]; then
-            PACKAGE_NAME=$(grep -oP 'namespace\s*=\s*"\K[^"]+' android/app/build.gradle || grep -oP "namespace\s*=\s*'\K[^']+" android/app/build.gradle || true)
-          fi
-          
-          if [ -z "$PACKAGE_NAME" ]; then
-             echo "::error::Could not extract package name from android/app/build.gradle"
+             echo "::error::Could not extract package name from any build.gradle(.kts) file."
              exit 1
           fi
           
