@@ -1,4 +1,4 @@
-name: Noise Remover
+name: Image Enhancer
 
 on:
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: 'Persie0/noise_remover'
+          repository: 'Persie0/image_enhancer'
           token: ${{ secrets.GH_TOKEN }}
 
       - uses: actions/setup-java@v4
