@@ -2,6 +2,7 @@ name: Image Enhancer
 
 on:
   workflow_dispatch:
+    inputs:
       build_apk:
         description: 'Build and upload Universal APK'
         required: false
