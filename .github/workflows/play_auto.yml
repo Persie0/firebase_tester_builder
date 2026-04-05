@@ -79,13 +79,20 @@ jobs:
       - name: Get Package Name
         id: get_package_name
         run: |
-          # Find any build.gradle or build.gradle.kts in an app folder
-          FILES=$(find . -name "build.gradle" -o -name "build.gradle.kts" | grep "/app/" | grep -v "/build/" | grep -v "/\.dart_tool/" || find . -name "build.gradle" -o -name "build.gradle.kts" | grep -v "/build/" | grep -v "/\.dart_tool/")
+          # Find all build.gradle or build.gradle.kts files excluding build artifacts
+          FILES=$(find . -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -not -path "*/build/*" -not -path "*/.dart_tool/*" | sort -r)
+          
           PACKAGE_NAME=""
           for FILE in $FILES; do
-              # Try to extract applicationId or namespace
-              PACKAGE_NAME=$(grep -oP '(applicationId|namespace)\s*=\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1 || grep -oP '(applicationId|namespace)\s*=\s*\K[a-zA-Z0-9._]+' "$FILE" | head -n 1)
-              if [ -n "$PACKAGE_NAME" ]; then
+              # Try to extract applicationId first (Groovy: applicationId "pkg", Kotlin: applicationId = "pkg")
+              PACKAGE_NAME=$(grep -oP 'applicationId\s*=?\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1)
+              
+              # Fallback to namespace if applicationId not found
+              if [ -z "$PACKAGE_NAME" ]; then
+                 PACKAGE_NAME=$(grep -oP 'namespace\s*=?\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1)
+              fi
+              
+              if [ -n "$PACKAGE_NAME" ] && [[ "$PACKAGE_NAME" != *"\${"* ]]; then
                 echo "Found package name \"$PACKAGE_NAME\" in $FILE"
                 break
               fi
