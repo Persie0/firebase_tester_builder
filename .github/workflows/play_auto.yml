@@ -12,6 +12,8 @@ on:
           - noise_remover
           - vitamindtracker
           - image_enhancer
+          - face_scanner
+          - resistor_scanner
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
