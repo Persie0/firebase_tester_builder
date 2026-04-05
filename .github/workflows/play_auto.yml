@@ -1,8 +1,18 @@
-name: Noise Remover
+name: Play Store Automation
+run-name: Deploy ${{ inputs.app }} by @${{ github.actor }}
 
 on:
   workflow_dispatch:
     inputs:
+      app:
+        description: 'Choose which app to build and deploy'
+        required: true
+        type: choice
+        options:
+          - noise_remover
+          - vitamindtracker
+          - image_enhancer
+        default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
         required: false
@@ -21,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: 'Persie0/noise_remover'
+          repository: 'Persie0/${{ inputs.app }}'
           token: ${{ secrets.GH_TOKEN }}
 
       - uses: actions/setup-java@v4
