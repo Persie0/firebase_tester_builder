@@ -45,9 +45,29 @@ jobs:
           if [ -f "$PROPERTIES_FILE" ]; then
             sed -i "s/#{KEYSTORE_PASS}#/${{ secrets.STORE_PASSWORD }}/g" "$PROPERTIES_FILE"
             sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ secrets.KEY_PASSWORD }}/g" "$PROPERTIES_FILE"
+            
+            # Extract keyAlias dynamically
+            KEY_ALIAS=$(grep "^keyAlias=" "$PROPERTIES_FILE" | cut -d'=' -f2 | xargs | tr -d '\r')
+            if [ -n "$KEY_ALIAS" ]; then
+              echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
+              echo "Detected keyAlias: $KEY_ALIAS from $PROPERTIES_FILE"
+            else
+              echo "KEY_ALIAS=key" >> $GITHUB_ENV
+            fi
+            
             echo "Updated $PROPERTIES_FILE"
           else
-            echo "::warning::key.properties not found in the repository."
+            echo "::warning::key.properties not found. Using defaults."
+            echo "KEY_ALIAS=key" >> $GITHUB_ENV
+          fi
+          
+          # Find the actual keystore path
+          KEYSTORE_PATH=$(find . -name "*.jks" -o -name "*.keystore" | grep "android/" | head -n 1 | sed 's|^\./||')
+          if [ -n "$KEYSTORE_PATH" ]; then
+            echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> $GITHUB_ENV
+            echo "Detected KEYSTORE_PATH: $KEYSTORE_PATH"
+          else
+             echo "KEYSTORE_PATH=android/app/key.jks" >> $GITHUB_ENV
           fi
 
       - uses: subosito/flutter-action@v2
@@ -129,8 +149,8 @@ jobs:
       - name: Extract APK from AAB
         if: github.event.inputs.build_apk == 'true' || github.event.inputs.run_tests == 'true'
         run: |
-          java -jar bundletool.jar build-apks --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks=android/app/key.jks --ks-pass=pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias=my-key-alias --key-pass=pass:${{ secrets.KEY_PASSWORD }}
-          unzip app.apks -d extracted_apk
+          java -jar bundletool.jar build-apks --overwrite --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks="${{ env.KEYSTORE_PATH }}" --ks-pass=pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias="${{ env.KEY_ALIAS }}" --key-pass=pass:${{ secrets.KEY_PASSWORD }}
+          unzip -o app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
 
       - name: Upload Android Release to Play Store
