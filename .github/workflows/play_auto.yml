@@ -186,7 +186,7 @@ jobs:
           gcloud firebase test android run \
             --app=app-release.apk \
             --type=robo \
-            --device=model=redfin,version=34 \
+            --device=model=MediumPhone.arm,version=34 \
             --timeout=180s \
             --no-auto-google-login
 
