@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      JVM_MS: 2g
+      JVM_MS: 1g
       JVM_MX: 3g
     steps:
       - uses: actions/checkout@v4
@@ -113,7 +113,7 @@ jobs:
         run: |
           touch android/gradle.properties
           sed -i '/org.gradle.jvmargs=/d' android/gradle.properties
-          echo "org.gradle.jvmargs=-Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }} -XX:MaxMetaspaceSize=512m -XX:+UseG1GC" >> android/gradle.properties
+          echo "org.gradle.jvmargs=-Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }}" >> android/gradle.properties
           sed -i '/org.gradle.daemon=/d' android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
@@ -141,7 +141,7 @@ jobs:
 
       - name: Build
         env:
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }} -XX:MaxMetaspaceSize=512m -XX:+UseG1GC"
+          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }}"
         run: flutter build appbundle --obfuscate --split-debug-info=./build
 
       - name: Sentry Upload
