@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      JVM_MS: 4g
-      JVM_MX: ${{ inputs.app == 'resistor_scanner' && '6g' || '10g' }}
+      JVM_MS: 2g
+      JVM_MX: 3g
     steps:
       - uses: actions/checkout@v4
         with:
