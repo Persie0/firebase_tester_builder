@@ -32,7 +32,7 @@ jobs:
     timeout-minutes: 60
     env:
       JVM_MS: 1g
-      JVM_MX: 3g
+      JVM_MX: ${{ inputs.app == 'resistor_scanner' && '5g' || '3g' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -118,6 +118,13 @@ jobs:
           echo "org.gradle.daemon=false" >> android/gradle.properties
           sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
+          
+          if [ "${{ inputs.app }}" == "resistor_scanner" ]; then
+            sed -i '/org.gradle.workers.max=/d' android/gradle.properties
+            echo "org.gradle.workers.max=2" >> android/gradle.properties
+            echo "Limited Gradle workers to 2 and increased heap to ${{ env.JVM_MX }} for resistor_scanner"
+          fi
+          
           echo "Updated gradle.properties with high-performance settings while preserving other properties."
           cat android/gradle.properties
 
