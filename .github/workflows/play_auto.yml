@@ -109,6 +109,34 @@ jobs:
           echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
           echo "Extracted Package Name: $PACKAGE_NAME"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Pre-install NDK
+        run: |
+          # Read the NDK version Flutter/Gradle actually needs
+          NDK_VERSION=$(grep -r "ndkVersion" android/ --include="*.gradle" --include="*.gradle.kts" | grep -oP '"\K[^"]+' | head -n 1)
+          if [ -z "$NDK_VERSION" ]; then
+            # Flutter's default NDK for stable channel as of mid-2024
+            NDK_VERSION="29.0.14206865"
+          fi
+          echo "Installing NDK $NDK_VERSION before build..."
+          echo "y" | sdkmanager "ndk;${NDK_VERSION}" --sdk_root=$ANDROID_SDK_ROOT
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
+
+
+      - name: Free Disk Space
+        uses: endersonmenezes/free-disk-space@v2
+        with:
+          remove_android: false
+          remove_dotnet: false
+          remove_haskell: true
+          remove_tool_cache: false
+          remove_swap: false
+          remove_packages_one_command: true
+          remove_folders: "/usr/share/swift"
+          testing: false
+
       - name: Update gradle.properties
         run: |
           touch android/gradle.properties
@@ -128,22 +156,6 @@ jobs:
           fi
 
       - run: flutter pub get
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Free Disk Space
-        uses: endersonmenezes/free-disk-space@v2
-        with:
-          remove_android: false
-          remove_dotnet: false
-          remove_haskell: true
-          remove_tool_cache: false
-          remove_swap: false
-          remove_packages_one_command: true
-          remove_folders: "/usr/share/swift"
-          testing: false
-
 
       - name: Build
         run: flutter build appbundle --obfuscate --split-debug-info=./build
