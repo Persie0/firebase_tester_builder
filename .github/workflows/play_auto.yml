@@ -82,8 +82,11 @@ jobs:
       - name: Get Package Name
         id: get_package_name
         run: |
-          # Find all build.gradle or build.gradle.kts files excluding build artifacts
-          FILES=$(find . -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -not -path "*/build/*" -not -path "*/.dart_tool/*" | sort -r)
+          # Prioritize the main app's build.gradle, then check others if not found
+          FILES=$(find android/app -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) 2>/dev/null | head -n 1)
+          if [ -z "$FILES" ]; then
+            FILES=$(find . -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -not -path "*/build/*" -not -path "*/.dart_tool/*" | sort)
+          fi
           
           PACKAGE_NAME=""
           for FILE in $FILES; do
