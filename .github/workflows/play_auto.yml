@@ -14,6 +14,10 @@ on:
           - image_enhancer
           - face_scanner
           - resistor_scanner
+          - face_scanner
+          - root_detection_app
+          - surebets_calculator
+          - resistor-calc
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
@@ -52,7 +56,6 @@ jobs:
           elif [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
             echo "STORE_PASS=${{ secrets.RESISTOR_SCANNER_STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASS=${{ secrets.RESISTOR_SCANNER_KEY_PASSWORD }}" >> $GITHUB_ENV
-            echo "OTHER_PASS=${{ secrets.RESISTOR_SCANNER_OTHER_PASSWORD }}" >> $GITHUB_ENV
           else
             echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
