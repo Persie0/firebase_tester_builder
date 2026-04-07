@@ -140,31 +140,39 @@ jobs:
       - name: Update gradle.properties
         run: |
           touch android/gradle.properties
+
           sed -i '/org.gradle.jvmargs=/d' android/gradle.properties
           sed -i '/kotlin.daemon/d' android/gradle.properties
           sed -i '/kotlin.compiler/d' android/gradle.properties
+          sed -i '/android.r8/d' android/gradle.properties
+          sed -i '/org.gradle.workers/d' android/gradle.properties
+          sed -i '/org.gradle.daemon=/d' android/gradle.properties
+          sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
 
-          # Single JVM for everything — Gradle + Kotlin compiler share the heap
-          echo "org.gradle.jvmargs=-Xms4g -Xmx12g -XX:+UseParallelGC -XX:ParallelGCThreads=4 -XX:+HeapDumpOnOutOfMemoryError" >> android/gradle.properties
+          # One JVM, all memory goes here
+          echo "org.gradle.jvmargs=-Xms6g -Xmx13g -XX:+UseParallelGC -XX:ParallelGCThreads=2" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
-          echo "org.gradle.workers.max=2" >> android/gradle.properties
+          echo "org.gradle.workers.max=1" >> android/gradle.properties
 
-          # Run Kotlin compiler inside the Gradle daemon — eliminates the second JVM entirely
+          # Kotlin in same JVM - no second process
           echo "kotlin.compiler.execution.strategy=in-process" >> android/gradle.properties
-          # Disable the Kotlin daemon explicitly as a fallback
-          echo "kotlin.daemon.jvm.options=-Xmx2g" >> android/gradle.properties
+
+          # R8 heap
+          echo "android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC" >> android/gradle.properties
 
           cat android/gradle.properties
 
       - run: flutter pub get
 
       - name: Build
+        env:
+          # This reaches Gradle even when Flutter rewrites the invocation
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms6g -Xmx13g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dandroid.r8.jvmargs='-Xmx6g'"
         run: |
           flutter build appbundle \
             --obfuscate \
-            --split-debug-info=./build \
-            --dart-define=GRADLE_OPTS="-Dkotlin.compiler.execution.strategy=in-process"
+            --split-debug-info=./build
 
       - name: Sentry Upload
         run: |
