@@ -18,6 +18,7 @@ on:
           - root_detection_app
           - surebets_calculator
           - resistor-calc
+          - fake_gps_detector
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
