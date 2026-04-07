@@ -141,24 +141,30 @@ jobs:
         run: |
           touch android/gradle.properties
           sed -i '/org.gradle.jvmargs=/d' android/gradle.properties
-          echo "org.gradle.jvmargs=-Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }} -XX:+UseParallelGC -XX:ParallelGCThreads=4" >> android/gradle.properties
+          sed -i '/kotlin.daemon/d' android/gradle.properties
+          sed -i '/kotlin.compiler/d' android/gradle.properties
 
-          sed -i '/org.gradle.daemon=/d' android/gradle.properties
+          # Single JVM for everything — Gradle + Kotlin compiler share the heap
+          echo "org.gradle.jvmargs=-Xms4g -Xmx12g -XX:+UseParallelGC -XX:ParallelGCThreads=4 -XX:+HeapDumpOnOutOfMemoryError" >> android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
-          sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
-          sed -i '/org.gradle.workers.max=/d' android/gradle.properties
+          echo "org.gradle.workers.max=2" >> android/gradle.properties
 
-          if [ "${{ inputs.app }}" == "resistor_scanner" ]; then
-            echo "org.gradle.workers.max=2" >> android/gradle.properties
-          else
-            echo "org.gradle.workers.max=4" >> android/gradle.properties  # cap all apps, not just resistor
-          fi
+          # Run Kotlin compiler inside the Gradle daemon — eliminates the second JVM entirely
+          echo "kotlin.compiler.execution.strategy=in-process" >> android/gradle.properties
+          # Disable the Kotlin daemon explicitly as a fallback
+          echo "kotlin.daemon.jvm.options=-Xmx2g" >> android/gradle.properties
+
+          cat android/gradle.properties
 
       - run: flutter pub get
 
       - name: Build
-        run: flutter build appbundle --obfuscate --split-debug-info=./build
+        run: |
+          flutter build appbundle \
+            --obfuscate \
+            --split-debug-info=./build \
+            --dart-define=GRADLE_OPTS="-Dkotlin.compiler.execution.strategy=in-process"
 
       - name: Sentry Upload
         run: |
