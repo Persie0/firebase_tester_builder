@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      JVM_MS: 1g
-      JVM_MX: ${{ inputs.app == 'resistor_scanner' && '5g' || '3g' }}
+      JVM_MS: 4g
+      JVM_MX: ${{ inputs.app == 'resistor_scanner' && '10g' || '8g' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -113,20 +113,19 @@ jobs:
         run: |
           touch android/gradle.properties
           sed -i '/org.gradle.jvmargs=/d' android/gradle.properties
-          echo "org.gradle.jvmargs=-Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }}" >> android/gradle.properties
+          echo "org.gradle.jvmargs=-Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }} -XX:+UseParallelGC -XX:ParallelGCThreads=4" >> android/gradle.properties
+
           sed -i '/org.gradle.daemon=/d' android/gradle.properties
           echo "org.gradle.daemon=false" >> android/gradle.properties
           sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
           echo "org.gradle.vfs.watch=false" >> android/gradle.properties
-          
+          sed -i '/org.gradle.workers.max=/d' android/gradle.properties
+
           if [ "${{ inputs.app }}" == "resistor_scanner" ]; then
-            sed -i '/org.gradle.workers.max=/d' android/gradle.properties
             echo "org.gradle.workers.max=2" >> android/gradle.properties
-            echo "Limited Gradle workers to 2 and increased heap to ${{ env.JVM_MX }} for resistor_scanner"
+          else
+            echo "org.gradle.workers.max=4" >> android/gradle.properties  # cap all apps, not just resistor
           fi
-          
-          echo "Updated gradle.properties with high-performance settings while preserving other properties."
-          cat android/gradle.properties
 
       - run: flutter pub get
 
@@ -147,8 +146,6 @@ jobs:
 
 
       - name: Build
-        env:
-          GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.vfs.watch=false -Xms${{ env.JVM_MS }} -Xmx${{ env.JVM_MX }}"
         run: flutter build appbundle --obfuscate --split-debug-info=./build
 
       - name: Sentry Upload
