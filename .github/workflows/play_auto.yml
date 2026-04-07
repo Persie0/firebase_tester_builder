@@ -44,12 +44,30 @@ jobs:
           distribution: 'zulu'
           java-version: '21.x'
 
+      - name: Set KeyStore Secrets
+        run: |
+          if [[ "${{ inputs.app }}" == "noise_remover" ]]; then
+            echo "STORE_PASS=${{ secrets.NOISE_REMOVER_STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_PASS=${{ secrets.NOISE_REMOVER_KEY_PASSWORD }}" >> $GITHUB_ENV
+          elif [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
+            echo "STORE_PASS=${{ secrets.RESISTOR_SCANNER_STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_PASS=${{ secrets.RESISTOR_SCANNER_KEY_PASSWORD }}" >> $GITHUB_ENV
+            echo "OTHER_PASS=${{ secrets.RESISTOR_SCANNER_OTHER_PASSWORD }}" >> $GITHUB_ENV
+          else
+            echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
+            echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+          fi
+
       - name: Update KeyStore password in gradle properties
         run: |
           PROPERTIES_FILE=$(find . -name "key.properties" | grep "android/" | head -n 1 || find . -name "key.properties" | head -n 1)
           if [ -f "$PROPERTIES_FILE" ]; then
-            sed -i "s/#{KEYSTORE_PASS}#/${{ secrets.STORE_PASSWORD }}/g" "$PROPERTIES_FILE"
-            sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ secrets.KEY_PASSWORD }}/g" "$PROPERTIES_FILE"
+            sed -i "s/#{KEYSTORE_PASS}#/${{ env.STORE_PASS }}/g" "$PROPERTIES_FILE"
+            sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ env.KEY_PASS }}/g" "$PROPERTIES_FILE"
+            
+            if [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
+               sed -i "s/#{KEYSTORE_OTHER_PASS}#/${{ env.OTHER_PASS }}/g" "$PROPERTIES_FILE"
+            fi
             
             # Extract keyAlias dynamically
             KEY_ALIAS=$(grep "^keyAlias=" "$PROPERTIES_FILE" | cut -d'=' -f2 | xargs | tr -d '\r')
@@ -195,7 +213,7 @@ jobs:
       - name: Extract APK from AAB
         if: github.event.inputs.build_apk == 'true' || github.event.inputs.run_tests == 'true'
         run: |
-          java -jar bundletool.jar build-apks --overwrite --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks="${{ env.KEYSTORE_PATH }}" --ks-pass=pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias="${{ env.KEY_ALIAS }}" --key-pass=pass:${{ secrets.KEY_PASSWORD }}
+          java -jar bundletool.jar build-apks --overwrite --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks="${{ env.KEYSTORE_PATH }}" --ks-pass=pass:${{ env.STORE_PASS }} --ks-key-alias="${{ env.KEY_ALIAS }}" --key-pass=pass:${{ env.KEY_PASS }}
           unzip -o app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
 
