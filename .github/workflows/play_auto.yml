@@ -53,11 +53,13 @@ jobs:
 
       - name: Update EULA and static assets
         run: |
+          mkdir -p assets/eula/translations_eula
           mkdir -p assets/eula/static
-          cp -rf eula_repo/translations_eula/* assets/eula/ 2>/dev/null || true
-          cp -rf eula_repo/static/* assets/eula/static/ 2>/dev/null || true
+          cp -rf eula_repo/translations_eula/* assets/eula/translations_eula/
+          cp -rf eula_repo/static/* assets/eula/static/
           rm -rf eula_repo
           echo "EULA and static assets updated successfully."
+          echo "--- Checking eula-en.html ---"
           cat assets/eula/translations_eula/eula-en.html
 
       - uses: actions/setup-java@v4
