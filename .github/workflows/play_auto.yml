@@ -44,6 +44,22 @@ jobs:
           repository: 'Persie0/${{ inputs.app }}'
           token: ${{ secrets.GH_TOKEN }}
 
+      - name: Checkout EULA repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/Persie0.github.io'
+          token: ${{ secrets.EULA_TOKEN }}
+          path: 'eula_repo'
+
+      - name: Update EULA and static assets
+        run: |
+          mkdir -p assets/eula/static
+          cp -rf eula_repo/translations_eula/* assets/eula/ 2>/dev/null || true
+          cp -rf eula_repo/static/* assets/eula/static/ 2>/dev/null || true
+          rm -rf eula_repo
+          echo "EULA and static assets updated successfully."
+          cat assets/eula/translations_eula/eula-en.html
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
