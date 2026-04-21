@@ -215,7 +215,7 @@ jobs:
         run: |
           flutter build appbundle \
             --obfuscate \
-            --split-debug-info=./build
+            --split-debug-info=build/app/outputs/symbols
 
       - name: Sentry Upload
         run: |
@@ -245,7 +245,8 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
           packageName: ${{ env.PACKAGE_NAME }}
           releaseFiles: build/app/outputs/bundle/release/app-release.aab
-          track: internal
+          debugSymbols: build/app/outputs/symbols
+          tracks: internal
 
       - name: Authenticate to Google Cloud
         if: github.event.inputs.run_tests == 'true'
