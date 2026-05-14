@@ -14,12 +14,12 @@ on:
           - image_enhancer
           - face_scanner
           - resistor_scanner
-          - face_scanner
           - root_detection_app
           - surebets_calculator
           - resistor-calc
           - fake_gps_detector
           - hanzi_hero
+          - Memory_Palace_Builder
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
