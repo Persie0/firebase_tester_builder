@@ -1,5 +1,5 @@
 name: Play Store Automation
-run-name: Deploy ${{ inputs.app }} by @${{ github.actor }}
+run-name: Deploy ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
   workflow_dispatch:
@@ -31,6 +31,10 @@ on:
         required: false
         type: boolean
         default: false
+      branch:
+        description: 'Branch to checkout (leave empty for default)'
+        required: false
+        default: ''
 
 jobs:
   build:
@@ -44,6 +48,7 @@ jobs:
         with:
           repository: 'Persie0/${{ inputs.app }}'
           token: ${{ secrets.GH_TOKEN }}
+          ref: ${{ inputs.branch }}
 
       - name: Checkout EULA repository
         uses: actions/checkout@v4
