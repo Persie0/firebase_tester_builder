@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/Persie0.github.io'
-          token: ${{ secrets.EULA_TOKEN }}
+          token: ${{ secrets.GH_TOKEN }}
           path: 'eula_repo'
 
       - name: Update EULA and static assets
