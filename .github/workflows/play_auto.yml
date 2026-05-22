@@ -20,6 +20,7 @@ on:
           - fake_gps_detector
           - hanzi_hero
           - Memory_Palace_Builder
+          - recorder_noise_remove
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
@@ -75,7 +76,7 @@ jobs:
 
       - name: Set KeyStore Secrets
         run: |
-          if [[ "${{ inputs.app }}" == "noise_remover" ]]; then
+          if [[ "${{ inputs.app }}" == "noise_remover" || "${{ inputs.app }}" == "recorder_noise_remove" ]]; then
             echo "STORE_PASS=${{ secrets.NOISE_REMOVER_STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASS=${{ secrets.NOISE_REMOVER_KEY_PASSWORD }}" >> $GITHUB_ENV
           elif [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
