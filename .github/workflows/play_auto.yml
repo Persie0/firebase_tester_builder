@@ -21,6 +21,7 @@ on:
           - hanzi_hero
           - Memory_Palace_Builder
           - recorder_noise_remove
+          - skratch_clone
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
