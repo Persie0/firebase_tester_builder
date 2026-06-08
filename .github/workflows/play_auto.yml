@@ -23,6 +23,7 @@ on:
           - recorder_noise_remove
           - skratch_clone
           - toiletcompass
+          - equilibrium
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
