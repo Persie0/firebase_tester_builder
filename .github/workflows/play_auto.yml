@@ -24,6 +24,7 @@ on:
           - skratch_clone
           - toiletcompass
           - equilibrium
+          - image_compressor
         default: noise_remover
       build_apk:
         description: 'Build and upload Universal APK'
