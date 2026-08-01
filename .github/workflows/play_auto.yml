@@ -27,7 +27,7 @@ on:
           - image_compressor
         default: noise_remover
       build_apk:
-        description: 'Build and upload Universal APK'
+        description: 'Build and send Universal APK to Telegram'
         required: false
         type: boolean
         default: false
@@ -249,6 +249,48 @@ jobs:
           java -jar bundletool.jar build-apks --overwrite --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks="${{ env.KEYSTORE_PATH }}" --ks-pass=pass:${{ env.STORE_PASS }} --ks-key-alias="${{ env.KEY_ALIAS }}" --key-pass=pass:${{ env.KEY_PASS }}
           unzip -o app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
+
+      # GitHub artifact upload intentionally disabled; APKs are sent to Telegram instead.
+      # - name: Upload Universal APK to GitHub
+      #   if: github.event.inputs.build_apk == 'true'
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: ${{ inputs.app }}-universal-apk
+      #     path: app-release.apk
+      #     if-no-files-found: error
+
+      - name: Checkout Telegram uploader
+        if: github.event.inputs.build_apk == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/github_torrent_downloader'
+          token: ${{ secrets.GH_TOKEN }}
+          path: 'telegram_tools'
+
+      - name: Set up Python for Telegram upload
+        if: github.event.inputs.build_apk == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install Telegram upload dependencies
+        if: github.event.inputs.build_apk == 'true'
+        run: |
+          python -m pip install --upgrade pip
+          pip install telethon cryptg
+
+      - name: Send Universal APK to Telegram
+        if: github.event.inputs.build_apk == 'true'
+        run: |
+          python telegram_tools/telegram_uploader.py \
+            --api-id "${{ secrets.TELEGRAM_API_ID }}" \
+            --api-hash "${{ secrets.TELEGRAM_API_HASH }}" \
+            --bot-token "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+            --chat-id "${{ secrets.TELEGRAM_CHAT_ID }}" \
+            --file "app-release.apk" \
+            --message "${{ inputs.app }} universal APK from GitHub Actions run #${{ github.run_number }}"
+        env:
+          PYTHONPATH: telegram_tools
 
       - name: Upload Android Release to Play Store
         uses: r0adkll/upload-google-play@v1
