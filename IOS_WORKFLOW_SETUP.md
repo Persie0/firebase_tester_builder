@@ -1,6 +1,6 @@
 # iOS App Store workflow setup
 
-The `App Store Automation` workflow checks out the selected Flutter app, builds and signs an IPA on a macOS runner, stores the IPA as a GitHub Actions artifact, and can upload it to TestFlight.
+The `App Store Automation` workflow handles all selected repositories through the same standard Flutter build path: checkout, `flutter pub get`, CocoaPods, Flutter iOS release build, Xcode archive, signed IPA export, artifact upload, and optional TestFlight upload.
 
 ## Repository secrets
 
@@ -39,7 +39,7 @@ Paste each output into its corresponding GitHub Actions secret. Never commit the
 
 ## Run it
 
-Open **Actions → App Store Automation → Run workflow**, select the app, and optionally provide:
+Open **Actions → App Store Automation → Run workflow**, select the Flutter app, and optionally provide:
 
 - a non-default app repository branch;
 - a scheme other than `Runner`;
@@ -50,6 +50,6 @@ When no build number is supplied, the workflow uses a UTC timestamp such as `202
 
 ## Signing behavior
 
-The workflow imports one Apple Distribution certificate into a temporary keychain. Xcode uses automatic signing plus the App Store Connect API key to download or create the required App Store provisioning profile for the selected app and any extensions. The temporary keychain and API key files are removed at the end of the job.
+The workflow imports one Apple Distribution certificate into a temporary keychain. Xcode uses automatic signing plus the App Store Connect API key to download or create the required App Store provisioning profile for the selected Flutter app and any extensions. The temporary keychain and API key files are removed at the end of the job.
 
-A project that uses another Apple team, a custom scheme, or unusual signing settings may need a separate workflow input or project-specific override.
+All apps use the same workflow and build commands; selecting a different app only changes which repository is checked out.
