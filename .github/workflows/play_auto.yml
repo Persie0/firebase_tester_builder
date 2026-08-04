@@ -1,7 +1,10 @@
 name: Play Store Automation
-run-name: Deploy ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
+run-name: Deploy ${{ env.APP_NAME }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       app:
@@ -49,14 +52,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
+      APP_NAME: ${{ inputs.app || 'pareader' }}
+      APP_BRANCH: ${{ inputs.branch || 'agent/restore-android-signing' }}
       JVM_MS: 4g
-      JVM_MX: ${{ inputs.app == 'resistor_scanner' && '10g' || '8g' }}
+      JVM_MX: ${{ (inputs.app || 'pareader') == 'resistor_scanner' && '10g' || '8g' }}
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: 'Persie0/${{ inputs.app }}'
+          repository: 'Persie0/${{ env.APP_NAME }}'
           token: ${{ secrets.GH_TOKEN }}
-          ref: ${{ inputs.branch }}
+          ref: ${{ env.APP_BRANCH }}
 
       - name: Checkout EULA repository
         uses: actions/checkout@v4
@@ -83,10 +88,10 @@ jobs:
 
       - name: Set KeyStore Secrets
         run: |
-          if [[ "${{ inputs.app }}" == "noise_remover" || "${{ inputs.app }}" == "recorder_noise_remove" ]]; then
+          if [[ "${{ env.APP_NAME }}" == "noise_remover" || "${{ env.APP_NAME }}" == "recorder_noise_remove" ]]; then
             echo "STORE_PASS=${{ secrets.NOISE_REMOVER_STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASS=${{ secrets.NOISE_REMOVER_KEY_PASSWORD }}" >> $GITHUB_ENV
-          elif [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
+          elif [[ "${{ env.APP_NAME }}" == "resistor_scanner" ]]; then
             echo "STORE_PASS=${{ secrets.RESISTOR_SCANNER_STORE_PASSWORD }}" >> $GITHUB_ENV
             echo "KEY_PASS=${{ secrets.RESISTOR_SCANNER_KEY_PASSWORD }}" >> $GITHUB_ENV
           else
@@ -101,7 +106,7 @@ jobs:
             sed -i "s/#{KEYSTORE_PASS}#/${{ env.STORE_PASS }}/g" "$PROPERTIES_FILE"
             sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ env.KEY_PASS }}/g" "$PROPERTIES_FILE"
             
-            if [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
+            if [[ "${{ env.APP_NAME }}" == "resistor_scanner" ]]; then
                sed -i "s/#{KEYSTORE_OTHER_PASS}#/${{ env.OTHER_PASS }}/g" "$PROPERTIES_FILE"
             fi
             
@@ -258,7 +263,7 @@ jobs:
       #   if: github.event.inputs.build_apk == 'true'
       #   uses: actions/upload-artifact@v4
       #   with:
-      #     name: ${{ inputs.app }}-universal-apk
+      #     name: ${{ env.APP_NAME }}-universal-apk
       #     path: app-release.apk
       #     if-no-files-found: error
 
@@ -291,7 +296,7 @@ jobs:
             --bot-token "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
             --chat-id "${{ secrets.TELEGRAM_CHAT_ID }}" \
             --file "app-release.apk" \
-            --message "${{ inputs.app }} universal APK from GitHub Actions run #${{ github.run_number }}"
+            --message "${{ env.APP_NAME }} universal APK from GitHub Actions run #${{ github.run_number }}"
         env:
           PYTHONPATH: telegram_tools
 
