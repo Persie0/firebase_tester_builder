@@ -44,3 +44,5 @@ jobs:
           git add .github/workflows/play_auto.yml
           git commit -m "ci: do not block Play release on Telegram"
           git push origin HEAD:main
+
+# Triggered after the workflow was present on the default branch.
