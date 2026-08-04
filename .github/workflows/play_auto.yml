@@ -27,6 +27,7 @@ on:
           - image_compressor
           - QR-Code-Scanner
           - live_noise_cancelling
+          - pareader
         default: noise_remover
       build_apk:
         description: 'Build and send Universal APK to Telegram'
