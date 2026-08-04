@@ -1,12 +1,12 @@
 {
-  "conclusion": "",
+  "conclusion": "success",
   "createdAt": "2026-08-04T16:57:11Z",
   "databaseId": 30931590598,
   "displayTitle": "Deploy image_compressor (master) by @github-actions[bot]",
   "headSha": "b52afb54a8d2702338d092a6080dfa38e7ea026d",
-  "status": "queued",
-  "updatedAt": "2026-08-04T16:57:11Z",
+  "status": "completed",
+  "updatedAt": "2026-08-04T17:07:44Z",
   "url": "https://github.com/Persie0/firebase_tester_builder/actions/runs/30931590598",
-  "recordedAt": "2026-08-04T16:57:18Z",
-  "phase": "dispatched"
+  "recordedAt": "2026-08-04T17:07:49Z",
+  "phase": "complete"
 }
