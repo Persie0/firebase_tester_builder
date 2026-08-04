@@ -25,6 +25,7 @@ on:
           - toiletcompass
           - equilibrium
           - image_compressor
+          - QR-Code-Scanner
         default: noise_remover
       build_apk:
         description: 'Build and send Universal APK to Telegram'
