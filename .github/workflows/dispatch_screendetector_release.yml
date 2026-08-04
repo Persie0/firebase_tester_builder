@@ -22,12 +22,13 @@ jobs:
           set -euo pipefail
           STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          # Sentry symbol upload is optional; release/Play/Firebase must continue.
+          # run_tests=true still creates a signed universal APK for Firebase.
+          # build_apk=false skips the optional Telegram delivery path.
           gh workflow run play_auto.yml \
             --repo Persie0/firebase_tester_builder \
             --ref main \
             -f app=screendetector \
-            -f build_apk=true \
+            -f build_apk=false \
             -f run_tests=true \
             -f branch=agent/fix-capture-detection-and-audit
 
