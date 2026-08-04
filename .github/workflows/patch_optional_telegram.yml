@@ -1,0 +1,46 @@
+name: Patch optional Telegram delivery
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch_optional_telegram.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Make Telegram upload best-effort
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('.github/workflows/play_auto.yml')
+          text = path.read_text()
+          old = "      - name: Send Universal APK to Telegram\n        if: github.event.inputs.build_apk == 'true'\n"
+          new = "      - name: Send Universal APK to Telegram\n        if: github.event.inputs.build_apk == 'true'\n        continue-on-error: true\n"
+          if new in text:
+              print('Telegram upload is already non-blocking.')
+          elif old in text:
+              path.write_text(text.replace(old, new, 1))
+              print('Updated Telegram upload to continue on error.')
+          else:
+              raise SystemExit('Telegram step pattern not found.')
+          PY
+
+      - name: Commit workflow fix
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add .github/workflows/play_auto.yml
+          git commit -m "ci: do not block Play release on Telegram"
+          git push origin HEAD:main
