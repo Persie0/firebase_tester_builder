@@ -23,6 +23,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Locate the newest Firebase-only screendetector release dispatch.
           CUTOFF="$(date -u -d '15 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
           RUN_JSON=""
 
