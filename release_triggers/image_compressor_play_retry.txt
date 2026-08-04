@@ -1,3 +1,5 @@
 Trigger: image_compressor Play-only release
 Source: Persie0/image_compressor@master
-Requested at: 2026-08-05T00:15:00+08:00
+Version: 2026.08.05+10
+Commit: 396753fa1c918bda9740c90622980f09ddd61abe
+Requested at: 2026-08-05T00:25:00+08:00
