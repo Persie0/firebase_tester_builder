@@ -1,0 +1,53 @@
+name: Record screendetector dispatch result
+
+on:
+  workflow_run:
+    workflows:
+      - Dispatch screendetector release
+    types:
+      - completed
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  record-result:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out builder repository
+        uses: actions/checkout@v4
+
+      - name: Record latest dispatcher result
+        env:
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          RUN_TITLE: ${{ github.event.workflow_run.display_title }}
+          RUN_CREATED_AT: ${{ github.event.workflow_run.created_at }}
+          RUN_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+        run: |
+          mkdir -p .github/release-status
+          cat > .github/release-status/screendetector-dispatch-latest.md <<EOF
+          # screendetector dispatcher result
+
+          - Title: ${RUN_TITLE}
+          - Run ID: ${RUN_ID}
+          - Run number: ${RUN_NUMBER}
+          - Conclusion: ${RUN_CONCLUSION}
+          - Created: ${RUN_CREATED_AT}
+          - Updated: ${RUN_UPDATED_AT}
+          - Run: ${RUN_URL}
+          EOF
+
+      - name: Commit result
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/release-status/screendetector-dispatch-latest.md
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git commit -m "ci: record screendetector dispatch result"
+          git push
