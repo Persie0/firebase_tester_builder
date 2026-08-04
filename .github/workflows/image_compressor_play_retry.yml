@@ -1,0 +1,102 @@
+name: Image compressor Play retry
+
+on:
+  push:
+    paths:
+      - 'release_triggers/image_compressor_play_retry.txt'
+
+permissions:
+  actions: write
+  contents: write
+
+jobs:
+  dispatch-watch-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Check out builder repository
+        uses: actions/checkout@v5
+        with:
+          ref: main
+
+      - name: Dispatch Play-only release
+        id: dispatch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          gh workflow run play_auto.yml \
+            --repo Persie0/firebase_tester_builder \
+            --ref main \
+            -f app=image_compressor \
+            -f build_apk=false \
+            -f run_tests=false \
+            -f branch=master
+
+          RUN_ID=""
+          for attempt in $(seq 1 60); do
+            RUN_ID="$(gh run list \
+              --repo Persie0/firebase_tester_builder \
+              --workflow play_auto.yml \
+              --event workflow_dispatch \
+              --limit 30 \
+              --json databaseId,createdAt,displayTitle \
+              --jq ".[] | select(.createdAt >= \"${STARTED_AT}\" and (.displayTitle | contains(\"Deploy image_compressor\"))) | .databaseId" \
+              | head -n 1)"
+            if [ -n "$RUN_ID" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Play-only image_compressor release run was not found."
+            exit 1
+          fi
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          mkdir -p release_status
+          gh run view "$RUN_ID" \
+            --repo Persie0/firebase_tester_builder \
+            --json databaseId,displayTitle,status,conclusion,createdAt,updatedAt,url,headSha \
+            | jq --arg recordedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {recordedAt: $recordedAt, phase: "dispatched"}' \
+            > release_status/image_compressor_play_retry.json
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add release_status/image_compressor_play_retry.json
+          git commit -m "ci: record image_compressor Play retry"
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+      - name: Watch Play-only release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          gh run watch "$RUN_ID" \
+            --repo Persie0/firebase_tester_builder \
+            --exit-status
+
+      - name: Record final release result
+        if: always() && steps.dispatch.outputs.run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ steps.dispatch.outputs.run_id }}
+        run: |
+          set -euo pipefail
+          git pull --rebase origin main
+          mkdir -p release_status
+          gh run view "$RUN_ID" \
+            --repo Persie0/firebase_tester_builder \
+            --json databaseId,displayTitle,status,conclusion,createdAt,updatedAt,url,headSha \
+            | jq --arg recordedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {recordedAt: $recordedAt, phase: "complete"}' \
+            > release_status/image_compressor_play_retry.json
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add release_status/image_compressor_play_retry.json
+          git commit -m "ci: record final image_compressor Play result" || exit 0
+          git push origin HEAD:main
