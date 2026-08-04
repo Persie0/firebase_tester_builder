@@ -234,6 +234,7 @@ jobs:
             --split-debug-info=./build
 
       - name: Sentry Upload
+        continue-on-error: true
         run: |
           if grep -q "sentry_dart_plugin" pubspec.yaml; then
             flutter packages pub run sentry_dart_plugin
