@@ -1,5 +1,5 @@
 name: Play Store Automation
-run-name: Deploy ${{ env.APP_NAME }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
+run-name: Deploy ${{ inputs.app || 'pareader' }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
   pull_request:
