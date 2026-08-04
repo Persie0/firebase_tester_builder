@@ -1,0 +1,363 @@
+name: App Store Automation
+run-name: Deploy ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} to TestFlight by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Choose which iOS app to build and deploy'
+        required: true
+        type: choice
+        options:
+          - noise_remover
+          - vitamindtracker
+          - image_enhancer
+          - face_scanner
+          - resistor_scanner
+          - root_detection_app
+          - surebets_calculator
+          - resistor-calc
+          - fake_gps_detector
+          - hanzi_hero
+          - Memory_Palace_Builder
+          - recorder_noise_remove
+          - skratch_clone
+          - toiletcompass
+          - equilibrium
+          - image_compressor
+        default: noise_remover
+      upload_to_testflight:
+        description: 'Upload the signed IPA to TestFlight'
+        required: false
+        type: boolean
+        default: true
+      branch:
+        description: 'Branch to checkout (leave empty for the repository default)'
+        required: false
+        default: ''
+      scheme:
+        description: 'Xcode scheme (normally Runner)'
+        required: false
+        default: 'Runner'
+      build_number:
+        description: 'Optional CFBundleVersion; leave empty to use a UTC timestamp'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    env:
+      APP_NAME: ${{ inputs.app }}
+      XCODE_SCHEME: ${{ inputs.scheme }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      ASC_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY_BASE64 }}
+      IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+      IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+
+    steps:
+      - name: Checkout selected app
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/${{ inputs.app }}'
+          token: ${{ secrets.GH_TOKEN }}
+          ref: ${{ inputs.branch }}
+
+      - name: Verify Flutter iOS project
+        run: |
+          set -euo pipefail
+          test -f pubspec.yaml || { echo '::error::pubspec.yaml was not found.'; exit 1; }
+          test -d ios || { echo "::error::${APP_NAME} does not contain an ios directory."; exit 1; }
+          test -d ios/Runner.xcodeproj || { echo '::error::ios/Runner.xcodeproj was not found.'; exit 1; }
+
+      - name: Checkout EULA repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/Persie0.github.io'
+          token: ${{ secrets.GH_TOKEN }}
+          path: 'eula_repo'
+
+      - name: Update EULA and static assets
+        run: |
+          set -euo pipefail
+          mkdir -p assets/eula/translations_eula assets/eula/static
+          if [ -d eula_repo/translations_eula ]; then
+            cp -R eula_repo/translations_eula/. assets/eula/translations_eula/
+          fi
+          if [ -d eula_repo/static ]; then
+            cp -R eula_repo/static/. assets/eula/static/
+          fi
+          rm -rf eula_repo
+
+      - name: Select Xcode and show versions
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+          ruby --version
+          pod --version
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+
+      - name: Install CocoaPods dependencies
+        run: |
+          set -euo pipefail
+          if [ -f ios/Podfile ]; then
+            cd ios
+            pod install || { pod repo update && pod install; }
+          else
+            echo 'No Podfile found; skipping CocoaPods.'
+          fi
+
+      - name: Determine build metadata
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.build_number }}" ]; then
+            BUILD_NUMBER="${{ inputs.build_number }}"
+          else
+            BUILD_NUMBER="$(date -u +%Y%m%d%H%M)"
+          fi
+
+          if ! [[ "$BUILD_NUMBER" =~ ^[0-9]+([.][0-9]+){0,2}$ ]]; then
+            echo '::error::build_number must contain one to three dot-separated integers.'
+            exit 1
+          fi
+
+          VERSION_NAME=$(awk '/^version:/ {print $2; exit}' pubspec.yaml | cut -d+ -f1)
+          VERSION_NAME=${VERSION_NAME:-1.0.0}
+
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "Using version $VERSION_NAME ($BUILD_NUMBER)"
+
+      - name: Validate Apple signing secrets
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "$APPLE_TEAM_ID" ] || missing+=(APPLE_TEAM_ID)
+          [ -n "$ASC_KEY_ID" ] || missing+=(APP_STORE_CONNECT_KEY_ID)
+          [ -n "$ASC_ISSUER_ID" ] || missing+=(APP_STORE_CONNECT_ISSUER_ID)
+          [ -n "$ASC_PRIVATE_KEY_BASE64" ] || missing+=(APP_STORE_CONNECT_PRIVATE_KEY_BASE64)
+          [ -n "$IOS_CERTIFICATE_BASE64" ] || missing+=(IOS_DISTRIBUTION_CERTIFICATE_BASE64)
+          [ -n "$IOS_CERTIFICATE_PASSWORD" ] || missing+=(IOS_DISTRIBUTION_CERTIFICATE_PASSWORD)
+
+          if [ ${#missing[@]} -gt 0 ]; then
+            printf '::error::Missing repository secrets: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Install signing certificate and API key
+        run: |
+          set -euo pipefail
+
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 32)"
+          CERTIFICATE_PATH="$RUNNER_TEMP/apple-distribution.p12"
+          ASC_KEY_PATH="$RUNNER_TEMP/AuthKey_${ASC_KEY_ID}.p8"
+          FASTLANE_API_KEY_PATH="$RUNNER_TEMP/app-store-connect-api-key.json"
+
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          from pathlib import Path
+
+          def decode(name: str, path: str) -> None:
+              value = ''.join(os.environ[name].split())
+              try:
+                  data = base64.b64decode(value, validate=True)
+              except Exception as exc:
+                  raise SystemExit(f'{name} is not valid base64: {exc}')
+              Path(path).write_bytes(data)
+
+          certificate_path = os.environ['RUNNER_TEMP'] + '/apple-distribution.p12'
+          key_path = os.environ['RUNNER_TEMP'] + f"/AuthKey_{os.environ['ASC_KEY_ID']}.p8"
+          fastlane_path = os.environ['RUNNER_TEMP'] + '/app-store-connect-api-key.json'
+
+          decode('IOS_CERTIFICATE_BASE64', certificate_path)
+          decode('ASC_PRIVATE_KEY_BASE64', key_path)
+
+          key = Path(key_path).read_text(encoding='utf-8')
+          Path(fastlane_path).write_text(json.dumps({
+              'key_id': os.environ['ASC_KEY_ID'],
+              'issuer_id': os.environ['ASC_ISSUER_ID'],
+              'key': key,
+              'in_house': False,
+          }), encoding='utf-8')
+          PY
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERTIFICATE_PATH" \
+            -P "$IOS_CERTIFICATE_PASSWORD" \
+            -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
+          echo "KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+          echo "ASC_KEY_PATH=$ASC_KEY_PATH" >> "$GITHUB_ENV"
+          echo "FASTLANE_API_KEY_PATH=$FASTLANE_API_KEY_PATH" >> "$GITHUB_ENV"
+
+      - name: Build Flutter iOS release assets
+        run: |
+          set -euo pipefail
+          flutter build ios \
+            --release \
+            --no-codesign \
+            --build-name "$VERSION_NAME" \
+            --build-number "$BUILD_NUMBER" \
+            --obfuscate \
+            --split-debug-info=build/ios-debug-info
+
+      - name: Archive signed iOS app
+        run: |
+          set -euo pipefail
+
+          if [ -d ios/Runner.xcworkspace ]; then
+            XCODE_CONTAINER=(-workspace ios/Runner.xcworkspace)
+          else
+            XCODE_CONTAINER=(-project ios/Runner.xcodeproj)
+          fi
+
+          ARCHIVE_PATH="$RUNNER_TEMP/${APP_NAME}.xcarchive"
+
+          xcodebuild \
+            "${XCODE_CONTAINER[@]}" \
+            -scheme "$XCODE_SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            PROVISIONING_PROFILE= \
+            PROVISIONING_PROFILE_SPECIFIER= \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            MARKETING_VERSION="$VERSION_NAME" \
+            DART_OBFUSCATION=true \
+            SPLIT_DEBUG_INFO="$GITHUB_WORKSPACE/build/ios-debug-info" \
+            TREE_SHAKE_ICONS=true \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            archive
+
+          echo "ARCHIVE_PATH=$ARCHIVE_PATH" >> "$GITHUB_ENV"
+
+      - name: Export signed IPA
+        run: |
+          set -euo pipefail
+
+          EXPORT_OPTIONS_PATH="$RUNNER_TEMP/ExportOptions.plist"
+          EXPORT_PATH="$GITHUB_WORKSPACE/build/ios/ipa"
+
+          cat > "$EXPORT_OPTIONS_PATH" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>destination</key>
+            <string>export</string>
+            <key>manageAppVersionAndBuildNumber</key>
+            <false/>
+            <key>method</key>
+            <string>app-store-connect</string>
+            <key>signingStyle</key>
+            <string>automatic</string>
+            <key>stripSwiftSymbols</key>
+            <true/>
+            <key>teamID</key>
+            <string>${APPLE_TEAM_ID}</string>
+            <key>uploadSymbols</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          rm -rf "$EXPORT_PATH"
+          mkdir -p "$EXPORT_PATH"
+
+          xcodebuild \
+            -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist "$EXPORT_OPTIONS_PATH" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$ASC_KEY_PATH" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+          IPA_PATH=$(find "$EXPORT_PATH" -maxdepth 1 -name '*.ipa' -print -quit)
+          if [ -z "$IPA_PATH" ]; then
+            echo '::error::Xcode export completed without producing an IPA.'
+            exit 1
+          fi
+
+          NORMALIZED_IPA="$GITHUB_WORKSPACE/build/${APP_NAME}-${VERSION_NAME}-${BUILD_NUMBER}.ipa"
+          cp "$IPA_PATH" "$NORMALIZED_IPA"
+          echo "IPA_PATH=$NORMALIZED_IPA" >> "$GITHUB_ENV"
+          echo "Created $NORMALIZED_IPA"
+
+      - name: Upload IPA and debug symbols artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-ios-run-${{ github.run_number }}
+          path: |
+            build/*.ipa
+            build/ios-debug-info/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Install fastlane
+        if: inputs.upload_to_testflight
+        run: gem install fastlane --no-document
+
+      - name: Upload to TestFlight
+        if: inputs.upload_to_testflight
+        run: |
+          set -euo pipefail
+          fastlane pilot upload \
+            --ipa "$IPA_PATH" \
+            --api_key_path "$FASTLANE_API_KEY_PATH" \
+            --skip_waiting_for_build_processing true
+
+      - name: Sentry upload
+        if: always() && hashFiles('pubspec.yaml') != ''
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if grep -q 'sentry_dart_plugin' pubspec.yaml; then
+            flutter packages pub run sentry_dart_plugin
+          else
+            echo 'Sentry plugin not found; skipping upload.'
+          fi
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f \
+            "${ASC_KEY_PATH:-}" \
+            "${FASTLANE_API_KEY_PATH:-}" \
+            "$RUNNER_TEMP/apple-distribution.p12" \
+            "$RUNNER_TEMP/ExportOptions.plist"
