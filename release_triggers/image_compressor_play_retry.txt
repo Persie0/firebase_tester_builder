@@ -1,0 +1,3 @@
+Trigger: image_compressor Play-only release
+Source: Persie0/image_compressor@master
+Requested at: 2026-08-05T00:15:00+08:00
