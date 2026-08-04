@@ -29,6 +29,7 @@ on:
           - live_noise_cancelling
           - pareader
           - secret_audio_message
+          - screendetector
         default: noise_remover
       build_apk:
         description: 'Build and send Universal APK to Telegram'
