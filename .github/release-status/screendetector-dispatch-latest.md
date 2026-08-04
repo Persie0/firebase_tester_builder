@@ -1,9 +1,9 @@
 # screendetector dispatcher result
 
-- Title: ci: retry screendetector release after Sentry fix
-- Run ID: 30929703110
-- Run number: 2
-- Conclusion: failure
-- Created: 2026-08-04T16:33:25Z
-- Updated: 2026-08-04T16:41:00Z
-- Run: https://github.com/Persie0/firebase_tester_builder/actions/runs/30929703110
+- Title: ci: run screendetector Firebase release without Telegram
+- Run ID: 30930523083
+- Run number: 3
+- Conclusion: success
+- Created: 2026-08-04T16:43:39Z
+- Updated: 2026-08-04T16:57:47Z
+- Run: https://github.com/Persie0/firebase_tester_builder/actions/runs/30930523083
