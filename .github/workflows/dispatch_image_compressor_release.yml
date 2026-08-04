@@ -25,7 +25,7 @@ jobs:
             --repo Persie0/firebase_tester_builder \
             --ref main \
             -f app=image_compressor \
-            -f build_apk=true \
+            -f build_apk=false \
             -f run_tests=false \
             -f branch=master
 
