@@ -1,10 +1,10 @@
 {
   "conclusion": "",
-  "createdAt": "2026-08-04T16:33:30Z",
-  "databaseId": 30929708811,
+  "createdAt": "2026-08-04T16:43:50Z",
+  "databaseId": 30930536851,
   "displayTitle": "Deploy screendetector (agent/fix-capture-detection-and-audit) by @github-actions[bot]",
-  "headSha": "c03e2a340c76917ec4141b06138164b7f19d3dd2",
+  "headSha": "43f29c16875cfa7dea705ab845c3bb94de8762df",
   "status": "in_progress",
-  "url": "https://github.com/Persie0/firebase_tester_builder/actions/runs/30929708811",
-  "probedAt": "2026-08-04T16:33:53Z"
+  "url": "https://github.com/Persie0/firebase_tester_builder/actions/runs/30930536851",
+  "probedAt": "2026-08-04T16:44:07Z"
 }
