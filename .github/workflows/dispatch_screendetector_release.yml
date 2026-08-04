@@ -22,6 +22,7 @@ jobs:
           set -euo pipefail
           STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+          # Sentry symbol upload is optional; release/Play/Firebase must continue.
           gh workflow run play_auto.yml \
             --repo Persie0/firebase_tester_builder \
             --ref main \
