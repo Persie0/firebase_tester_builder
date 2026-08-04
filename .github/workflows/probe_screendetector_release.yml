@@ -1,0 +1,56 @@
+name: Probe screendetector release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/probe_screendetector_release.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Record active release run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CUTOFF="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_JSON=""
+
+          for attempt in $(seq 1 60); do
+            RUN_JSON="$(gh run list \
+              --repo Persie0/firebase_tester_builder \
+              --workflow play_auto.yml \
+              --event workflow_dispatch \
+              --limit 30 \
+              --json databaseId,createdAt,displayTitle,status,conclusion,url,headSha \
+              --jq ".[] | select(.createdAt >= \"${CUTOFF}\" and (.displayTitle | contains(\"Deploy screendetector\")))" \
+              | head -n 1)"
+            if [ -n "$RUN_JSON" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [ -z "$RUN_JSON" ]; then
+            echo "::error::No recent screendetector release run found."
+            exit 1
+          fi
+
+          mkdir -p release_status
+          echo "$RUN_JSON" | jq --arg probedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '. + {probedAt: $probedAt}' > release_status/screendetector_active.json
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add release_status/screendetector_active.json
+          git commit -m "ci: record active screendetector release run"
+          git push origin HEAD:main
