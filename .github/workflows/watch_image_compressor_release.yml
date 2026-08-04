@@ -1,0 +1,73 @@
+name: Watch image_compressor release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/watch_image_compressor_release.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  watch-and-record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Check out builder repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Find and watch release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CUTOFF="$(date -u -d '30 minutes ago' +%Y-%m-%dT%H:%M:%SZ)"
+          RUN_ID=""
+
+          for attempt in $(seq 1 60); do
+            RUN_ID="$(gh run list \
+              --repo Persie0/firebase_tester_builder \
+              --workflow play_auto.yml \
+              --event workflow_dispatch \
+              --limit 30 \
+              --json databaseId,createdAt,displayTitle \
+              --jq ".[] | select(.createdAt >= \"${CUTOFF}\" and (.displayTitle | contains(\"Deploy image_compressor\"))) | .databaseId" \
+              | head -n 1)"
+            if [ -n "$RUN_ID" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::No recent image_compressor release workflow was found."
+            exit 1
+          fi
+
+          set +e
+          gh run watch "$RUN_ID" \
+            --repo Persie0/firebase_tester_builder \
+            --exit-status
+          WATCH_EXIT=$?
+          set -e
+
+          mkdir -p release_status
+          gh run view "$RUN_ID" \
+            --repo Persie0/firebase_tester_builder \
+            --json databaseId,displayTitle,status,conclusion,createdAt,updatedAt,url,headSha \
+            | jq \
+                --arg watchedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                --argjson watchExit "$WATCH_EXIT" \
+                '. + {watchedAt: $watchedAt, watchExit: $watchExit}' \
+            > release_status/image_compressor_latest.json
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add release_status/image_compressor_latest.json
+          git commit -m "ci: record image_compressor release result"
+          git push origin HEAD:main
+
+          exit "$WATCH_EXIT"
