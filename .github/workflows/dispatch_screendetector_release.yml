@@ -22,6 +22,7 @@ jobs:
           set -euo pipefail
           STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
+          # Android 17 recording lifecycle fix, app build 1.1.1+3.
           # run_tests=true still creates a signed universal APK for Firebase.
           # build_apk=false skips the optional Telegram delivery path.
           gh workflow run play_auto.yml \
