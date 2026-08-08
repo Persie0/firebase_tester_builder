@@ -47,16 +47,13 @@ on:
         default: ''
 
 concurrency:
-  group: android-release-${{ inputs.app }}-${{ inputs.branch || 'default' }}
-  cancel-in-progress: true
+  group: android-release-${{ inputs.app }}
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      JVM_MS: 4g
-      JVM_MX: ${{ inputs.app == 'resistor_scanner' && '10g' || '8g' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,125 +66,103 @@ jobs:
         with:
           repository: 'Persie0/Persie0.github.io'
           token: ${{ secrets.GH_TOKEN }}
-          path: 'eula_repo'
+          path: eula_repo
 
       - name: Update EULA and static assets
         run: |
-          mkdir -p assets/eula/translations_eula
-          mkdir -p assets/eula/static
-          cp -rf eula_repo/translations_eula/* assets/eula/translations_eula/
-          cp -rf eula_repo/static/* assets/eula/static/
+          mkdir -p assets/eula/translations_eula assets/eula/static
+          cp -rf eula_repo/translations_eula/. assets/eula/translations_eula/
+          cp -rf eula_repo/static/. assets/eula/static/
           rm -rf eula_repo
-          echo "EULA and static assets updated successfully."
-          echo "--- Checking eula-en.html ---"
-          cat assets/eula/translations_eula/eula-en.html
 
       - uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
+          distribution: zulu
           java-version: '21.x'
 
-      - name: Set KeyStore Secrets
+      - name: Set keystore secrets
+        shell: bash
         run: |
+          set -euo pipefail
           if [[ "${{ inputs.app }}" == "noise_remover" || "${{ inputs.app }}" == "recorder_noise_remove" ]]; then
-            echo "STORE_PASS=${{ secrets.NOISE_REMOVER_STORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_PASS=${{ secrets.NOISE_REMOVER_KEY_PASSWORD }}" >> $GITHUB_ENV
+            echo "STORE_PASS=${{ secrets.NOISE_REMOVER_STORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_PASS=${{ secrets.NOISE_REMOVER_KEY_PASSWORD }}" >> "$GITHUB_ENV"
           elif [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
-            echo "STORE_PASS=${{ secrets.RESISTOR_SCANNER_STORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_PASS=${{ secrets.RESISTOR_SCANNER_KEY_PASSWORD }}" >> $GITHUB_ENV
+            echo "STORE_PASS=${{ secrets.RESISTOR_SCANNER_STORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_PASS=${{ secrets.RESISTOR_SCANNER_KEY_PASSWORD }}" >> "$GITHUB_ENV"
           else
-            echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> $GITHUB_ENV
-            echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> $GITHUB_ENV
+            echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
           fi
 
-      - name: Update KeyStore password in gradle properties
+      - name: Configure keystore
+        shell: bash
         run: |
-          PROPERTIES_FILE=$(find . -name "key.properties" | grep "android/" | head -n 1 || find . -name "key.properties" | head -n 1)
-          if [ -f "$PROPERTIES_FILE" ]; then
-            sed -i "s/#{KEYSTORE_PASS}#/${{ env.STORE_PASS }}/g" "$PROPERTIES_FILE"
-            sed -i "s/#{KEYSTORE_KEY_PASS}#/${{ env.KEY_PASS }}/g" "$PROPERTIES_FILE"
-            
-            if [[ "${{ inputs.app }}" == "resistor_scanner" ]]; then
-               sed -i "s/#{KEYSTORE_OTHER_PASS}#/${{ env.OTHER_PASS }}/g" "$PROPERTIES_FILE"
-            fi
-            
-            # Extract keyAlias dynamically
-            KEY_ALIAS=$(grep "^keyAlias=" "$PROPERTIES_FILE" | cut -d'=' -f2 | xargs | tr -d '\r')
-            if [ -n "$KEY_ALIAS" ]; then
-              echo "KEY_ALIAS=$KEY_ALIAS" >> $GITHUB_ENV
-              echo "Detected keyAlias: $KEY_ALIAS from $PROPERTIES_FILE"
-            else
-              echo "KEY_ALIAS=key" >> $GITHUB_ENV
-            fi
-            
-            echo "Updated $PROPERTIES_FILE"
-          else
-            echo "::warning::key.properties not found. Using defaults."
-            echo "KEY_ALIAS=key" >> $GITHUB_ENV
+          set -euo pipefail
+          PROPERTIES_FILE="$(find . -name key.properties | grep 'android/' | head -n 1 || true)"
+          if [ -z "$PROPERTIES_FILE" ]; then
+            PROPERTIES_FILE="$(find . -name key.properties | head -n 1 || true)"
           fi
-          
-          # Find the actual keystore path
-          KEYSTORE_PATH=$(find . -name "*.jks" -o -name "*.keystore" | grep "android/" | head -n 1 | sed 's|^\./||')
-          if [ -n "$KEYSTORE_PATH" ]; then
-            echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> $GITHUB_ENV
-            echo "Detected KEYSTORE_PATH: $KEYSTORE_PATH"
+
+          if [ -n "$PROPERTIES_FILE" ] && [ -f "$PROPERTIES_FILE" ]; then
+            sed -i "s/#{KEYSTORE_PASS}#/${STORE_PASS}/g" "$PROPERTIES_FILE"
+            sed -i "s/#{KEYSTORE_KEY_PASS}#/${KEY_PASS}/g" "$PROPERTIES_FILE"
+            KEY_ALIAS="$(grep '^keyAlias=' "$PROPERTIES_FILE" | cut -d= -f2- | xargs | tr -d '\r' || true)"
           else
-             echo "KEYSTORE_PATH=android/app/key.jks" >> $GITHUB_ENV
+            KEY_ALIAS=""
           fi
+
+          if [ -z "$KEY_ALIAS" ]; then
+            KEY_ALIAS=key
+          fi
+          echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+
+          KEYSTORE_PATH="$(find . \( -name '*.jks' -o -name '*.keystore' \) | grep 'android/' | head -n 1 | sed 's|^\./||' || true)"
+          if [ -z "$KEYSTORE_PATH" ]; then
+            KEYSTORE_PATH=android/app/key.jks
+          fi
+          echo "KEYSTORE_PATH=$KEYSTORE_PATH" >> "$GITHUB_ENV"
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
 
-      - name: Get Package Name
-        id: get_package_name
+      - name: Get package name
+        shell: bash
         run: |
-          # Prioritize the main app's build.gradle, then check others if not found
-          FILES=$(find android/app -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) 2>/dev/null | head -n 1)
-          if [ -z "$FILES" ]; then
-            FILES=$(find . -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -not -path "*/build/*" -not -path "*/.dart_tool/*" | sort)
+          set -euo pipefail
+          FILE="$(find android/app -type f \( -name build.gradle -o -name build.gradle.kts \) 2>/dev/null | head -n 1 || true)"
+          if [ -z "$FILE" ]; then
+            echo "::error::android/app build.gradle(.kts) not found"
+            exit 1
           fi
-          
-          PACKAGE_NAME=""
-          for FILE in $FILES; do
-              # Try to extract applicationId first (Groovy: applicationId "pkg", Kotlin: applicationId = "pkg")
-              PACKAGE_NAME=$(grep -oP 'applicationId\s*=?\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1)
-              
-              # Fallback to namespace if applicationId not found
-              if [ -z "$PACKAGE_NAME" ]; then
-                 PACKAGE_NAME=$(grep -oP 'namespace\s*=?\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1)
-              fi
-              
-              if [ -n "$PACKAGE_NAME" ] && [[ "$PACKAGE_NAME" != *"\${"* ]]; then
-                echo "Found package name \"$PACKAGE_NAME\" in $FILE"
-                break
-              fi
-          done
-          
+
+          PACKAGE_NAME="$(grep -oP 'applicationId\s*=?\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1 || true)"
           if [ -z "$PACKAGE_NAME" ]; then
-             echo "::error::Could not extract package name from any build.gradle(.kts) file."
-             exit 1
+            PACKAGE_NAME="$(grep -oP 'namespace\s*=?\s*["'\'']\K[^"'\'']+' "$FILE" | head -n 1 || true)"
           fi
-          
-          echo "PACKAGE_NAME=$PACKAGE_NAME" >> $GITHUB_ENV
-          echo "Extracted Package Name: $PACKAGE_NAME"
+          if [ -z "$PACKAGE_NAME" ] || [[ "$PACKAGE_NAME" == *'${'* ]]; then
+            echo "::error::Could not determine package name from $FILE"
+            exit 1
+          fi
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> "$GITHUB_ENV"
+          echo "Package: $PACKAGE_NAME"
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
       - name: Pre-install NDK
+        shell: bash
         run: |
-          # Read the NDK version Flutter/Gradle actually needs
-          NDK_VERSION=$(grep -r "ndkVersion" android/ --include="*.gradle" --include="*.gradle.kts" | grep -oP '"\K[^"]+' | head -n 1)
+          set -euo pipefail
+          NDK_VERSION="$(grep -r 'ndkVersion' android/ --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | grep -oP '"\K[^"]+' | head -n 1 || true)"
           if [ -z "$NDK_VERSION" ]; then
-            # Flutter's default NDK for stable channel as of mid-2024
-            NDK_VERSION="29.0.14206865"
+            NDK_VERSION=29.0.14206865
           fi
-          echo "Installing NDK $NDK_VERSION before build..."
-          echo "y" | sdkmanager "ndk;${NDK_VERSION}" --sdk_root=$ANDROID_SDK_ROOT
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
+          echo y | sdkmanager "ndk;${NDK_VERSION}" --sdk_root="$ANDROID_SDK_ROOT"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
 
-      - name: Free Disk Space
+      - name: Free disk space
         uses: endersonmenezes/free-disk-space@v2
         with:
           remove_android: false
@@ -196,57 +171,119 @@ jobs:
           remove_tool_cache: false
           remove_swap: false
           remove_packages_one_command: true
-          remove_folders: "/usr/share/swift"
+          remove_folders: /usr/share/swift
           testing: false
 
-      - name: Update gradle.properties
-        run: |
-          touch android/gradle.properties
-
-          sed -i '/org.gradle.jvmargs=/d' android/gradle.properties
-          sed -i '/kotlin.daemon/d' android/gradle.properties
-          sed -i '/kotlin.compiler/d' android/gradle.properties
-          sed -i '/android.r8/d' android/gradle.properties
-          sed -i '/org.gradle.workers/d' android/gradle.properties
-          sed -i '/org.gradle.daemon=/d' android/gradle.properties
-          sed -i '/org.gradle.vfs.watch=/d' android/gradle.properties
-
-          # One JVM, all memory goes here
-          echo "org.gradle.jvmargs=-Xms6g -Xmx13g -XX:+UseParallelGC -XX:ParallelGCThreads=2" >> android/gradle.properties
-          echo "org.gradle.daemon=false" >> android/gradle.properties
-          echo "org.gradle.vfs.watch=false" >> android/gradle.properties
-          echo "org.gradle.workers.max=1" >> android/gradle.properties
-
-          # Kotlin in same JVM - no second process
-          echo "kotlin.compiler.execution.strategy=in-process" >> android/gradle.properties
-
-          # R8 heap
-          echo "android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC" >> android/gradle.properties
-
-          cat android/gradle.properties
-
-      - run: flutter pub get
-
-      - name: Set numeric datetime release version
+      - name: Configure Gradle memory
         shell: bash
         run: |
           set -euo pipefail
-          VERSION_NAME="$(date -u +'%Y%m%d%H%M%S')"
-          NOW_EPOCH="$(date -u +%s)"
-          VERSION_CODE="$((NOW_EPOCH - 1577836800))"
+          touch android/gradle.properties
+          sed -i '/org.gradle.jvmargs=/d;/kotlin.daemon/d;/kotlin.compiler/d;/android.r8/d;/org.gradle.workers/d;/org.gradle.daemon=/d;/org.gradle.vfs.watch=/d' android/gradle.properties
+          {
+            echo 'org.gradle.jvmargs=-Xms6g -Xmx13g -XX:+UseParallelGC -XX:ParallelGCThreads=2'
+            echo 'org.gradle.daemon=false'
+            echo 'org.gradle.vfs.watch=false'
+            echo 'org.gradle.workers.max=1'
+            echo 'kotlin.compiler.execution.strategy=in-process'
+            echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
+          } >> android/gradle.properties
 
-          if [ "$VERSION_CODE" -le 0 ] || [ "$VERSION_CODE" -gt 2100000000 ]; then
-            echo "::error::Generated Android versionCode $VERSION_CODE is outside the supported range."
-            exit 1
-          fi
+      - run: flutter pub get
 
-          echo "BUILD_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
-          echo "BUILD_NUMBER=$VERSION_CODE" >> "$GITHUB_ENV"
-          echo "Release versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+      - name: Install Play API helper
+        run: python -m pip install --quiet google-auth requests
 
-      - name: Build
+      - name: Resolve next Play versionCode
         env:
-          # This reaches Gradle even when Flutter rewrites the invocation
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_NAME=$(date -u +'%Y%m%d%H%M%S')" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          from google.auth.transport.requests import Request
+          from google.oauth2 import service_account
+
+          package_name = os.environ['PACKAGE_NAME']
+          service_account_json = os.environ.get('SERVICE_ACCOUNT_JSON', '')
+          if not service_account_json:
+              raise SystemExit('SERVICE_ACCOUNT_JSON is missing')
+
+          info = json.loads(service_account_json)
+          credentials = service_account.Credentials.from_service_account_info(
+              info,
+              scopes=['https://www.googleapis.com/auth/androidpublisher'],
+          )
+          credentials.refresh(Request())
+
+          base = (
+              'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/'
+              + urllib.parse.quote(package_name, safe='')
+          )
+          headers = {
+              'Authorization': f'Bearer {credentials.token}',
+              'Content-Type': 'application/json',
+          }
+
+          def request_json(method, url, body=None):
+              data = None if body is None else json.dumps(body).encode('utf-8')
+              req = urllib.request.Request(url, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=60) as response:
+                      raw = response.read().decode('utf-8')
+                      return json.loads(raw) if raw else {}
+              except urllib.error.HTTPError as exc:
+                  details = exc.read().decode('utf-8', errors='replace')
+                  raise RuntimeError(f'Google Play API {method} {url} failed: {exc.code} {details}') from exc
+
+          edit = request_json('POST', f'{base}/edits', {})
+          edit_id = edit['id']
+          version_codes = []
+          try:
+              bundles = request_json('GET', f'{base}/edits/{edit_id}/bundles')
+              apks = request_json('GET', f'{base}/edits/{edit_id}/apks')
+              version_codes.extend(int(item['versionCode']) for item in bundles.get('bundles', []))
+              version_codes.extend(int(item['versionCode']) for item in apks.get('apks', []))
+          finally:
+              try:
+                  request_json('DELETE', f'{base}/edits/{edit_id}')
+              except Exception as exc:
+                  print(f'Warning: could not delete probe edit {edit_id}: {exc}')
+
+          local_build = 0
+          try:
+              with open('pubspec.yaml', encoding='utf-8') as handle:
+                  for line in handle:
+                      match = re.match(r'^\s*version:\s*[^+\s]+\+(\d+)\s*$', line)
+                      if match:
+                          local_build = int(match.group(1))
+                          break
+          except FileNotFoundError:
+              pass
+
+          highest = max(version_codes + [local_build, 0])
+          next_code = highest + 1
+          if next_code > 2_100_000_000:
+              raise SystemExit(f'Next versionCode {next_code} exceeds Google Play limit')
+
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
+              env_file.write(f'BUILD_NUMBER={next_code}\n')
+
+          print(f'Play artifact versionCodes: {sorted(set(version_codes))[-10:]}')
+          print(f'Local pubspec build number: {local_build}')
+          print(f'Next Android versionCode: {next_code}')
+          PY
+
+      - name: Build app bundle
+        env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms6g -Xmx13g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dandroid.r8.jvmargs='-Xmx6g'"
         run: |
           flutter build appbundle \
@@ -255,91 +292,82 @@ jobs:
             --build-name="$BUILD_NAME" \
             --build-number="$BUILD_NUMBER"
 
-      - name: Sentry Upload
+      - name: Sentry upload
         continue-on-error: true
-        run: |
-          if grep -q "sentry_dart_plugin" pubspec.yaml; then
-            flutter packages pub run sentry_dart_plugin
-          else
-            echo "Sentry plugin not found in pubspec.yaml, skipping upload."
-          fi
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          if grep -q sentry_dart_plugin pubspec.yaml; then
+            flutter packages pub run sentry_dart_plugin
+          fi
 
       - name: Download bundletool
-        if: github.event.inputs.build_apk == 'true' || github.event.inputs.run_tests == 'true'
-        run: |
-          wget https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
+        if: inputs.build_apk || inputs.run_tests
+        run: wget -q https://github.com/google/bundletool/releases/download/1.15.6/bundletool-all-1.15.6.jar -O bundletool.jar
 
-      - name: Extract APK from AAB
-        if: github.event.inputs.build_apk == 'true' || github.event.inputs.run_tests == 'true'
+      - name: Extract universal APK
+        if: inputs.build_apk || inputs.run_tests
+        shell: bash
         run: |
-          java -jar bundletool.jar build-apks --overwrite --bundle=build/app/outputs/bundle/release/app-release.aab --output=app.apks --mode=universal --ks="${{ env.KEYSTORE_PATH }}" --ks-pass=pass:${{ env.STORE_PASS }} --ks-key-alias="${{ env.KEY_ALIAS }}" --key-pass=pass:${{ env.KEY_PASS }}
-          unzip -o app.apks -d extracted_apk
+          set -euo pipefail
+          java -jar bundletool.jar build-apks \
+            --overwrite \
+            --bundle=build/app/outputs/bundle/release/app-release.aab \
+            --output=app.apks \
+            --mode=universal \
+            --ks="$KEYSTORE_PATH" \
+            --ks-pass="pass:$STORE_PASS" \
+            --ks-key-alias="$KEY_ALIAS" \
+            --key-pass="pass:$KEY_PASS"
+          unzip -oq app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
 
-      # GitHub artifact upload intentionally disabled; APKs are sent to Telegram instead.
-      # - name: Upload Universal APK to GitHub
-      #   if: github.event.inputs.build_apk == 'true'
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: ${{ inputs.app }}-universal-apk
-      #     path: app-release.apk
-      #     if-no-files-found: error
-
       - name: Checkout Telegram uploader
-        if: github.event.inputs.build_apk == 'true'
+        if: inputs.build_apk
         uses: actions/checkout@v4
         with:
-          repository: 'Persie0/github_torrent_downloader'
+          repository: Persie0/github_torrent_downloader
           token: ${{ secrets.GH_TOKEN }}
-          path: 'telegram_tools'
+          path: telegram_tools
 
-      - name: Set up Python for Telegram upload
-        if: github.event.inputs.build_apk == 'true'
+      - name: Set up Python for Telegram
+        if: inputs.build_apk
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      - name: Install Telegram upload dependencies
-        if: github.event.inputs.build_apk == 'true'
-        run: |
-          python -m pip install --upgrade pip
-          pip install telethon cryptg
-
       - name: Send Universal APK to Telegram
-        if: github.event.inputs.build_apk == 'true'
+        if: inputs.build_apk
         run: |
+          python -m pip install --quiet telethon cryptg
           python telegram_tools/telegram_uploader.py \
             --api-id "${{ secrets.TELEGRAM_API_ID }}" \
             --api-hash "${{ secrets.TELEGRAM_API_HASH }}" \
             --bot-token "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
             --chat-id "${{ secrets.TELEGRAM_CHAT_ID }}" \
-            --file "app-release.apk" \
-            --message "${{ inputs.app }} $BUILD_NAME universal APK from GitHub Actions run #${{ github.run_number }}"
-        env:
-          PYTHONPATH: telegram_tools
+            --file app-release.apk \
+            --message "${{ inputs.app }} $BUILD_NAME ($BUILD_NUMBER) universal APK from GitHub Actions run #${{ github.run_number }}"
 
-      - name: Upload Android Release to Play Store
+      - name: Upload Android release to Play Store
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
           packageName: ${{ env.PACKAGE_NAME }}
           releaseFiles: build/app/outputs/bundle/release/app-release.aab
-          tracks: internal
+          track: internal
 
       - name: Authenticate to Google Cloud
-        if: github.event.inputs.run_tests == 'true'
+        if: inputs.run_tests
         uses: google-github-actions/auth@v2
         with:
           credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
 
       - name: Set up Cloud SDK
-        if: github.event.inputs.run_tests == 'true'
+        if: inputs.run_tests
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Run Tests on Firebase Test Lab
-        if: github.event.inputs.run_tests == 'true'
+      - name: Run Firebase Test Lab
+        if: inputs.run_tests
         run: |
           gcloud firebase test android run \
             --app=app-release.apk \
