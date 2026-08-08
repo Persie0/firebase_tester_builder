@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Dispatch existing Play automation
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           curl --fail-with-body -L \
             -X POST \
