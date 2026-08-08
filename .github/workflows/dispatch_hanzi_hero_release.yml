@@ -1,0 +1,56 @@
+name: Dispatch hanzi_hero tester release
+
+on:
+  push:
+    paths:
+      - '.github/workflows/dispatch_hanzi_hero_release.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch-and-watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - name: Dispatch shared release workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          STARTED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          gh workflow run play_auto.yml \
+            --repo Persie0/firebase_tester_builder \
+            --ref main \
+            -f app=hanzi_hero \
+            -f build_apk=true \
+            -f run_tests=false \
+            -f branch=main
+
+          RUN_ID=""
+          for attempt in $(seq 1 60); do
+            RUN_ID="$(gh run list \
+              --repo Persie0/firebase_tester_builder \
+              --workflow play_auto.yml \
+              --event workflow_dispatch \
+              --limit 20 \
+              --json databaseId,createdAt,displayTitle \
+              --jq ".[] | select(.createdAt >= \"${STARTED_AT}\" and (.displayTitle | contains(\"Deploy hanzi_hero\"))) | .databaseId" \
+              | head -n 1)"
+            if [ -n "$RUN_ID" ]; then
+              break
+            fi
+            sleep 5
+          done
+
+          if [ -z "$RUN_ID" ]; then
+            echo "::error::Dispatched release workflow was not found."
+            exit 1
+          fi
+
+          echo "Watching release workflow run $RUN_ID"
+          gh run watch "$RUN_ID" \
+            --repo Persie0/firebase_tester_builder \
+            --exit-status
