@@ -46,6 +46,10 @@ on:
         required: false
         default: ''
 
+concurrency:
+  group: android-release-${{ inputs.app }}-${{ inputs.branch || 'default' }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -183,7 +187,6 @@ jobs:
           echo "y" | sdkmanager "ndk;${NDK_VERSION}" --sdk_root=$ANDROID_SDK_ROOT
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> $GITHUB_ENV
 
-
       - name: Free Disk Space
         uses: endersonmenezes/free-disk-space@v2
         with:
@@ -224,6 +227,23 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Set numeric datetime release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION_NAME="$(date -u +'%Y%m%d%H%M%S')"
+          NOW_EPOCH="$(date -u +%s)"
+          VERSION_CODE="$((NOW_EPOCH - 1577836800))"
+
+          if [ "$VERSION_CODE" -le 0 ] || [ "$VERSION_CODE" -gt 2100000000 ]; then
+            echo "::error::Generated Android versionCode $VERSION_CODE is outside the supported range."
+            exit 1
+          fi
+
+          echo "BUILD_NAME=$VERSION_NAME" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$VERSION_CODE" >> "$GITHUB_ENV"
+          echo "Release versionName=$VERSION_NAME versionCode=$VERSION_CODE"
+
       - name: Build
         env:
           # This reaches Gradle even when Flutter rewrites the invocation
@@ -231,7 +251,9 @@ jobs:
         run: |
           flutter build appbundle \
             --obfuscate \
-            --split-debug-info=./build
+            --split-debug-info=./build \
+            --build-name="$BUILD_NAME" \
+            --build-number="$BUILD_NUMBER"
 
       - name: Sentry Upload
         continue-on-error: true
@@ -294,7 +316,7 @@ jobs:
             --bot-token "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
             --chat-id "${{ secrets.TELEGRAM_CHAT_ID }}" \
             --file "app-release.apk" \
-            --message "${{ inputs.app }} universal APK from GitHub Actions run #${{ github.run_number }}"
+            --message "${{ inputs.app }} $BUILD_NAME universal APK from GitHub Actions run #${{ github.run_number }}"
         env:
           PYTHONPATH: telegram_tools
 
