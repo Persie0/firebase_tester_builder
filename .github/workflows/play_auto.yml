@@ -246,12 +246,19 @@ jobs:
 
           edit = request_json('POST', f'{base}/edits', {})
           edit_id = edit['id']
-          version_codes = []
+          artifact_codes = []
+          track_codes = []
           try:
               bundles = request_json('GET', f'{base}/edits/{edit_id}/bundles')
               apks = request_json('GET', f'{base}/edits/{edit_id}/apks')
-              version_codes.extend(int(item['versionCode']) for item in bundles.get('bundles', []))
-              version_codes.extend(int(item['versionCode']) for item in apks.get('apks', []))
+              tracks = request_json('GET', f'{base}/edits/{edit_id}/tracks')
+
+              artifact_codes.extend(int(item['versionCode']) for item in bundles.get('bundles', []))
+              artifact_codes.extend(int(item['versionCode']) for item in apks.get('apks', []))
+
+              for track in tracks.get('tracks', []):
+                  for release in track.get('releases', []):
+                      track_codes.extend(int(code) for code in release.get('versionCodes', []))
           finally:
               try:
                   request_json('DELETE', f'{base}/edits/{edit_id}')
@@ -269,7 +276,8 @@ jobs:
           except FileNotFoundError:
               pass
 
-          highest = max(version_codes + [local_build, 0])
+          all_codes = artifact_codes + track_codes + [local_build, 0]
+          highest = max(all_codes)
           next_code = highest + 1
           if next_code > 2_100_000_000:
               raise SystemExit(f'Next versionCode {next_code} exceeds Google Play limit')
@@ -277,7 +285,8 @@ jobs:
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
               env_file.write(f'BUILD_NUMBER={next_code}\n')
 
-          print(f'Play artifact versionCodes: {sorted(set(version_codes))[-10:]}')
+          print(f'Play artifact versionCodes: {sorted(set(artifact_codes))[-10:]}')
+          print(f'Play track versionCodes: {sorted(set(track_codes))[-10:]}')
           print(f'Local pubspec build number: {local_build}')
           print(f'Next Android versionCode: {next_code}')
           PY
