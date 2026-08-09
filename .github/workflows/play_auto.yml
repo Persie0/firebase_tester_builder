@@ -32,7 +32,7 @@ on:
           - screendetector
         default: noise_remover
       build_apk:
-        description: 'Build and send Universal APK to Telegram'
+        description: 'Build Universal APK (Telegram upload disabled)'
         required: false
         type: boolean
         default: false
@@ -331,31 +331,32 @@ jobs:
           unzip -oq app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
 
-      - name: Checkout Telegram uploader
-        if: inputs.build_apk
-        uses: actions/checkout@v4
-        with:
-          repository: Persie0/github_torrent_downloader
-          token: ${{ secrets.GH_TOKEN }}
-          path: telegram_tools
+      # Telegram upload disabled.
+      # - name: Checkout Telegram uploader
+      #   if: inputs.build_apk
+      #   uses: actions/checkout@v4
+      #   with:
+      #     repository: Persie0/github_torrent_downloader
+      #     token: ${{ secrets.GH_TOKEN }}
+      #     path: telegram_tools
 
-      - name: Set up Python for Telegram
-        if: inputs.build_apk
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
+      # - name: Set up Python for Telegram
+      #   if: inputs.build_apk
+      #   uses: actions/setup-python@v5
+      #   with:
+      #     python-version: '3.10'
 
-      - name: Send Universal APK to Telegram
-        if: inputs.build_apk
-        run: |
-          python -m pip install --quiet telethon cryptg
-          python telegram_tools/telegram_uploader.py \
-            --api-id "${{ secrets.TELEGRAM_API_ID }}" \
-            --api-hash "${{ secrets.TELEGRAM_API_HASH }}" \
-            --bot-token "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
-            --chat-id "${{ secrets.TELEGRAM_CHAT_ID }}" \
-            --file app-release.apk \
-            --message "${{ inputs.app }} $BUILD_NAME ($BUILD_NUMBER) universal APK from GitHub Actions run #${{ github.run_number }}"
+      # - name: Send Universal APK to Telegram
+      #   if: inputs.build_apk
+      #   run: |
+      #     python -m pip install --quiet telethon cryptg
+      #     python telegram_tools/telegram_uploader.py \
+      #       --api-id "${{ secrets.TELEGRAM_API_ID }}" \
+      #       --api-hash "${{ secrets.TELEGRAM_API_HASH }}" \
+      #       --bot-token "${{ secrets.TELEGRAM_BOT_TOKEN }}" \
+      #       --chat-id "${{ secrets.TELEGRAM_CHAT_ID }}" \
+      #       --file app-release.apk \
+      #       --message "${{ inputs.app }} $BUILD_NAME ($BUILD_NUMBER) universal APK from GitHub Actions run #${{ github.run_number }}"
 
       - name: Upload Android release to Play Store
         uses: r0adkll/upload-google-play@v1
