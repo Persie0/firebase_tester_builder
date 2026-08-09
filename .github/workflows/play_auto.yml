@@ -48,7 +48,7 @@ on:
 
 concurrency:
   group: android-release-${{ inputs.app }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
