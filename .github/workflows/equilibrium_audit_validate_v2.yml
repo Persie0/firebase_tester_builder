@@ -56,6 +56,9 @@ jobs:
       - name: Test
         run: flutter test
 
+      - name: Build Android debug APK
+        run: flutter build apk --debug
+
       - name: Commit resolved lockfile
         shell: bash
         run: |
