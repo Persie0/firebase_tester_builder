@@ -1,0 +1,57 @@
+name: Equilibrium final audit validation
+
+on:
+  push:
+    branches:
+      - equilibrium-audit-validation
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equilibrium-final-audit-validation
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout Equilibrium audit branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/equilibrium
+          ref: audit/ui-ux-2026-08-26
+          token: ${{ secrets.GH_TOKEN }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: zulu
+          java-version: '21.x'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Resolve dependencies
+        run: flutter pub get
+
+      - name: Capture resolved lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: equilibrium-resolved-lockfile
+          path: pubspec.lock
+          retention-days: 1
+
+      - name: Check patch whitespace
+        run: git diff --check
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
