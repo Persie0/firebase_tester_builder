@@ -31,6 +31,11 @@ on:
         required: false
         type: boolean
         default: true
+      run_revenuecat_tests:
+        description: 'Run RevenueCat Test Store purchase persistence checks'
+        required: false
+        type: boolean
+        default: false
       branch:
         description: 'Branch to checkout (leave empty for the repository default)'
         required: false
@@ -68,6 +73,14 @@ jobs:
           repository: 'Persie0/${{ inputs.app }}'
           token: ${{ secrets.GH_TOKEN }}
           ref: ${{ inputs.branch }}
+
+      - name: Checkout RevenueCat CI tools
+        if: inputs.run_revenuecat_tests
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          token: ${{ secrets.GH_TOKEN }}
+          path: _firebase_tester_builder
 
       - name: Verify Flutter iOS project
         run: |
@@ -120,6 +133,27 @@ jobs:
           else
             echo 'No Podfile found; skipping CocoaPods.'
           fi
+
+      - name: Prepare RevenueCat Test Store CI
+        id: revenuecat_prepare
+        if: inputs.run_revenuecat_tests
+        env:
+          REVENUECAT_TEST_STORE_KEYS_JSON: ${{ secrets.REVENUECAT_TEST_STORE_KEYS_JSON }}
+        run: |
+          python3 _firebase_tester_builder/revenuecat/prepare.py \
+            --app "${{ inputs.app }}" \
+            --platform ios
+
+      - name: Set up Java for Maestro
+        if: inputs.run_revenuecat_tests && steps.revenuecat_prepare.outputs.enabled == 'true'
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '21'
+
+      - name: RevenueCat purchase persistence test (iOS)
+        if: inputs.run_revenuecat_tests && steps.revenuecat_prepare.outputs.enabled == 'true'
+        run: bash _firebase_tester_builder/revenuecat/run_ios.sh
 
       - name: Determine build metadata
         run: |
