@@ -1,0 +1,29 @@
+{
+  "noise_remover": {
+    "entitlement": "noisecancel Pro",
+    "android": true,
+    "ios": true
+  },
+  "vitamindtracker": {
+    "entitlement": "vitamind Pro",
+    "android": true,
+    "ios": true
+  },
+  "image_enhancer": {
+    "entitlement": "imageEnhancer Pro",
+    "android": true,
+    "ios": true
+  },
+  "face_scanner": {
+    "entitlement": "facemesh Pro",
+    "android": true,
+    "ios": false,
+    "note": "iOS RevenueCat production key is still a placeholder in the app"
+  },
+  "resistor_scanner": {
+    "entitlement": "resistor scanner Pro",
+    "android": true,
+    "ios": false,
+    "note": "RevenueCatService currently declares Android as the only supported platform"
+  }
+}
