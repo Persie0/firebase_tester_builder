@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 MIN_FLUTTER_SDK = (9, 8, 0)
 
@@ -23,6 +24,13 @@ def github_env(name: str, value: str) -> None:
         print(f"export {name}={value!r}")
 
 
+def github_output(name: str, value: str) -> None:
+    output_path = os.environ.get("GITHUB_OUTPUT")
+    if output_path:
+        with open(output_path, "a", encoding="utf-8") as handle:
+            handle.write(f"{name}={value}\n")
+
+
 def github_notice(message: str) -> None:
     print(f"::notice::{message}")
 
@@ -31,7 +39,7 @@ def github_warning(message: str) -> None:
     print(f"::warning::{message}")
 
 
-def fail(message: str) -> "NoReturn":
+def fail(message: str) -> NoReturn:
     print(f"::error::{message}", file=sys.stderr)
     raise SystemExit(1)
 
@@ -59,6 +67,7 @@ def main() -> None:
     app_config = config.get(args.app)
 
     github_env("RC_CI_ENABLED", "false")
+    github_output("enabled", "false")
     if app_config is None:
         github_notice(
             f"{args.app} has no RevenueCat CI configuration; purchase test is skipped."
@@ -137,6 +146,7 @@ def main() -> None:
     github_env("RC_CI_ENTITLEMENT", entitlement)
     github_env("RC_CI_USER_ID", user_id)
     github_env("REVENUECAT_TEST_STORE_API_KEY", test_key)
+    github_output("enabled", "true")
     github_notice(
         f"RevenueCat CI prepared for {args.app}/{args.platform}; "
         f"purchases_flutter={'.'.join(map(str, version))}, entitlement={entitlement!r}."
