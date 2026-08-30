@@ -1,0 +1,186 @@
+name: Reusable Debug APK Release
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Optional branch/tag/SHA from the caller repository; empty builds the triggering commit'
+        required: false
+        default: ''
+        type: string
+      prerelease:
+        description: 'Publish the generated GitHub Release as a prerelease'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout caller app
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve app metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          APP_NAME="${GITHUB_REPOSITORY#*/}"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Detect project type
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f pubspec.yaml ]; then
+            echo 'type=flutter' >> "$GITHUB_OUTPUT"
+          elif [ -f android/gradlew ]; then
+            echo 'type=gradle-wrapper-android' >> "$GITHUB_OUTPUT"
+          elif [ -f gradlew ]; then
+            echo 'type=gradle-wrapper-root' >> "$GITHUB_OUTPUT"
+          elif [ -f android/settings.gradle ] || [ -f android/settings.gradle.kts ]; then
+            echo 'type=gradle-system-android' >> "$GITHUB_OUTPUT"
+          elif [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then
+            echo 'type=gradle-system-root' >> "$GITHUB_OUTPUT"
+          else
+            echo '::error::No supported Flutter/Gradle Android project was found.'
+            exit 1
+          fi
+
+      - name: Setup Flutter
+        if: steps.project.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup standalone Gradle
+        if: startsWith(steps.project.outputs.type, 'gradle-system-')
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Install requested NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' android . --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -z "$NDK_VERSION" ] && find . -name CMakeLists.txt -print -quit | grep -q .; then
+            NDK_VERSION='28.2.13676358'
+          fi
+          if [ -n "$NDK_VERSION" ]; then
+            sdkmanager "ndk;$NDK_VERSION" >/dev/null
+          fi
+
+      - name: Build Flutter debug APK
+        if: steps.project.outputs.type == 'flutter'
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Build Android debug APK with project wrapper
+        if: steps.project.outputs.type == 'gradle-wrapper-android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          (cd android && ./gradlew :app:assembleDebug --stacktrace)
+
+      - name: Build Android debug APK with root wrapper
+        if: steps.project.outputs.type == 'gradle-wrapper-root'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Build Android debug APK with standalone Gradle
+        if: startsWith(steps.project.outputs.type, 'gradle-system-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.project.outputs.type }}" = 'gradle-system-android' ]; then
+            gradle -p android :app:assembleDebug --stacktrace
+          else
+            gradle :app:assembleDebug --stacktrace
+          fi
+
+      - name: Select debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
+            APK='build/app/outputs/flutter-apk/app-debug.apk'
+          else
+            APK="$(find . -type f -path '*/build/outputs/apk/debug/*.apk' ! -name '*androidTest*' -printf '%s %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+          fi
+          if [ -z "${APK:-}" ] || [ ! -f "$APK" ]; then
+            echo '::error::Debug build completed but no debug APK was found.'
+            find . -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          mkdir -p release-out
+          OUT="release-out/${APP_NAME}-debug.apk"
+          cp "$APK" "$OUT"
+          echo "APK_PATH=$OUT" >> "$GITHUB_ENV"
+          ls -lh "$OUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-debug-${{ env.SHORT_SHA }}
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish debug GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="debug-${SHORT_SHA}"
+          TITLE="${APP_NAME} debug ${SHORT_SHA}"
+          NOTES="Automated debug APK for ${GITHUB_REPOSITORY}@${TARGET_SHA}. Built by the reusable Persie0/firebase_tester_builder debug workflow. This is a debug/test build, not a production release."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            EXTRA=()
+            if [ "$PRERELEASE" = 'true' ]; then EXTRA+=(--prerelease); fi
+            gh release create "$TAG" "$APK_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              "${EXTRA[@]}"
+          fi
+
+          RELEASE_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"
+          echo "### Debug APK published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Repository: $GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $TARGET_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: $RELEASE_URL"
