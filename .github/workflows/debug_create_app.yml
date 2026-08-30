@@ -120,7 +120,7 @@ jobs:
           fi
           if [ -n "$NDK_VERSION" ]; then
             echo "Installing NDK $NDK_VERSION"
-            yes | sdkmanager "ndk;$NDK_VERSION" >/dev/null
+            sdkmanager "ndk;$NDK_VERSION" >/dev/null
           else
             echo 'No explicit/native NDK requirement detected.'
           fi
