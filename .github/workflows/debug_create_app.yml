@@ -1,0 +1,219 @@
+name: Debug Create App
+run-name: Debug APK · ${{ inputs.app || '3dimageapp' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Repository name under the selected owner (for example 3dimageapp)'
+        required: true
+        type: string
+      owner:
+        description: 'GitHub repository owner'
+        required: false
+        default: 'Persie0'
+        type: string
+      branch:
+        description: 'Branch/tag/SHA to build; empty uses the repository default branch'
+        required: false
+        default: ''
+        type: string
+  push:
+    paths:
+      - '.github/workflows/debug_create_app.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: debug-create-${{ inputs.owner || 'Persie0' }}-${{ inputs.app || '3dimageapp' }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TARGET_OWNER: ${{ inputs.owner || 'Persie0' }}
+      TARGET_APP: ${{ inputs.app || '3dimageapp' }}
+      TARGET_REF: ${{ inputs.branch || '' }}
+    steps:
+      - name: Validate release token
+        env:
+          RELEASE_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo '::error::GH_TOKEN secret is required to checkout private apps and publish to their Releases pages.'
+            exit 1
+          fi
+
+      - name: Checkout target app
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TARGET_OWNER }}/${{ env.TARGET_APP }}
+          token: ${{ secrets.GH_TOKEN }}
+          ref: ${{ env.TARGET_REF }}
+          fetch-depth: 0
+
+      - name: Resolve target metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_REPO="${TARGET_OWNER}/${TARGET_APP}"
+          TARGET_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          echo "TARGET_REPO=$TARGET_REPO" >> "$GITHUB_ENV"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "Building $TARGET_REPO@$TARGET_SHA"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Detect project type
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f pubspec.yaml ]; then
+            echo 'type=flutter' >> "$GITHUB_OUTPUT"
+          elif [ -f android/gradlew ]; then
+            echo 'type=gradle-wrapper-android' >> "$GITHUB_OUTPUT"
+          elif [ -f gradlew ]; then
+            echo 'type=gradle-wrapper-root' >> "$GITHUB_OUTPUT"
+          elif [ -f android/settings.gradle ] || [ -f android/settings.gradle.kts ]; then
+            echo 'type=gradle-system-android' >> "$GITHUB_OUTPUT"
+          elif [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then
+            echo 'type=gradle-system-root' >> "$GITHUB_OUTPUT"
+          else
+            echo '::error::No supported Flutter/Gradle Android project was found.'
+            exit 1
+          fi
+
+      - name: Setup Flutter
+        if: steps.project.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Setup standalone Gradle
+        if: startsWith(steps.project.outputs.type, 'gradle-system-')
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.5.0'
+
+      - name: Install requested NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' android . --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -z "$NDK_VERSION" ] && find . -name CMakeLists.txt -print -quit | grep -q .; then
+            NDK_VERSION='28.2.13676358'
+          fi
+          if [ -n "$NDK_VERSION" ]; then
+            echo "Installing NDK $NDK_VERSION"
+            yes | sdkmanager "ndk;$NDK_VERSION" >/dev/null
+          else
+            echo 'No explicit/native NDK requirement detected.'
+          fi
+
+      - name: Build Flutter debug APK
+        if: steps.project.outputs.type == 'flutter'
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Build Android debug APK with project wrapper
+        if: steps.project.outputs.type == 'gradle-wrapper-android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x android/gradlew
+          (cd android && ./gradlew :app:assembleDebug --stacktrace)
+
+      - name: Build Android debug APK with root wrapper
+        if: steps.project.outputs.type == 'gradle-wrapper-root'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Build Android debug APK with standalone Gradle
+        if: startsWith(steps.project.outputs.type, 'gradle-system-')
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.project.outputs.type }}" = 'gradle-system-android' ]; then
+            gradle -p android :app:assembleDebug --stacktrace
+          else
+            gradle :app:assembleDebug --stacktrace
+          fi
+
+      - name: Select debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=""
+          if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
+            APK='build/app/outputs/flutter-apk/app-debug.apk'
+          else
+            APK="$(find . -type f -path '*/build/outputs/apk/debug/*.apk' ! -name '*androidTest*' -printf '%s %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+          fi
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
+            echo '::error::Debug build completed but no debug APK was found.'
+            find . -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          mkdir -p release-out
+          OUT="release-out/${TARGET_APP}-debug.apk"
+          cp "$APK" "$OUT"
+          echo "APK_PATH=$OUT" >> "$GITHUB_ENV"
+          echo "Selected APK: $APK"
+          ls -lh "$OUT"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.TARGET_APP }}-debug-${{ env.SHORT_SHA }}
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APK to target GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="debug-${SHORT_SHA}"
+          TITLE="${TARGET_APP} debug ${SHORT_SHA}"
+          NOTES="Automated debug APK for ${TARGET_REPO}@${TARGET_SHA}. Built by Persie0/firebase_tester_builder Debug Create App. This is a debug/test build, not a production release."
+
+          if gh release view "$TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "$TARGET_REPO" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH" \
+              --repo "$TARGET_REPO" \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
+
+          RELEASE_URL="$(gh release view "$TAG" --repo "$TARGET_REPO" --json url --jq .url)"
+          echo "### Debug APK published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Repository: $TARGET_REPO" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $TARGET_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: $RELEASE_URL"
