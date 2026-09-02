@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - '.github/workflows/debug_stem_build.yml'
+      - 'debug_triggers/stem.txt'
   workflow_dispatch:
 
 permissions:
