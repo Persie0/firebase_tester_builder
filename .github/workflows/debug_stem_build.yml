@@ -1,0 +1,114 @@
+name: Build Stem Debug APK
+
+on:
+  push:
+    paths:
+      - '.github/workflows/debug_stem_build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-stem-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$REPO_TOKEN" ]; then
+            echo '::error::GH_RELEASE_TOKEN or GH_TOKEN is required to read the private Stem repo and publish the debug release.'
+            exit 1
+          fi
+
+      - name: Checkout Stem
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/stem
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          ref: main
+          fetch-depth: 0
+
+      - name: Resolve metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install requested NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' android . --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -z "$NDK_VERSION" ] && find . -name CMakeLists.txt -print -quit | grep -q .; then
+            NDK_VERSION='28.2.13676358'
+          fi
+          if [ -n "$NDK_VERSION" ]; then
+            echo "Installing NDK $NDK_VERSION"
+            sdkmanager "ndk;$NDK_VERSION" >/dev/null
+          fi
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='build/app/outputs/flutter-apk/app-debug.apk'
+          test -f "$APK"
+          mkdir -p release-out
+          cp "$APK" release-out/stem-debug.apk
+          ls -lh release-out/stem-debug.apk
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stem-debug-${{ env.SHORT_SHA }}
+          path: release-out/stem-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish Stem debug release
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="debug-${SHORT_SHA}"
+          if gh release view "$TAG" --repo Persie0/stem >/dev/null 2>&1; then
+            gh release upload "$TAG" release-out/stem-debug.apk --repo Persie0/stem --clobber
+          else
+            gh release create "$TAG" release-out/stem-debug.apk \
+              --repo Persie0/stem \
+              --target "$TARGET_SHA" \
+              --title "stem debug ${SHORT_SHA}" \
+              --notes "Automated debug APK for Persie0/stem@${TARGET_SHA}, built by Persie0/firebase_tester_builder." \
+              --prerelease
+          fi
+          gh release view "$TAG" --repo Persie0/stem --json url --jq .url
