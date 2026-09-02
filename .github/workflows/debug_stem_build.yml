@@ -70,12 +70,12 @@ jobs:
             sdkmanager "ndk;$NDK_VERSION" >/dev/null
           fi
 
-      - name: Build debug APK
+      - name: Build ARM64 debug APK
         shell: bash
         run: |
           set -euo pipefail
           flutter pub get
-          flutter build apk --debug
+          flutter build apk --debug --target-platform android-arm64
 
       - name: Prepare APK
         shell: bash
@@ -90,7 +90,7 @@ jobs:
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stem-debug-${{ env.SHORT_SHA }}
+          name: stem-debug-arm64-${{ env.SHORT_SHA }}
           path: release-out/stem-debug.apk
           if-no-files-found: error
           retention-days: 14
@@ -109,7 +109,7 @@ jobs:
               --repo Persie0/stem \
               --target "$TARGET_SHA" \
               --title "stem debug ${SHORT_SHA}" \
-              --notes "Automated debug APK for Persie0/stem@${TARGET_SHA}, built by Persie0/firebase_tester_builder." \
+              --notes "Automated ARM64 debug APK for Persie0/stem@${TARGET_SHA}, built by Persie0/firebase_tester_builder." \
               --prerelease
           fi
           gh release view "$TAG" --repo Persie0/stem --json url --jq .url
