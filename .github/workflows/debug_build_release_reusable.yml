@@ -83,8 +83,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' android . --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
-          if [ -z "$NDK_VERSION" ] && find . -name CMakeLists.txt -print -quit | grep -q .; then
+          PROJECT_TYPE='${{ steps.project.outputs.type }}'
+          case "$PROJECT_TYPE" in
+            gradle-wrapper-root|gradle-system-root) ANDROID_ROOT='.' ;;
+            *) ANDROID_ROOT='android' ;;
+          esac
+
+          if [ ! -d "$ANDROID_ROOT" ]; then
+            exit 0
+          fi
+
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$ANDROID_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -z "$NDK_VERSION" ] && find "$ANDROID_ROOT" -name CMakeLists.txt -print -quit | grep -q .; then
             NDK_VERSION='28.2.13676358'
           fi
           if [ -n "$NDK_VERSION" ]; then
