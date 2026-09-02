@@ -1,1 +1,1 @@
-Trigger Stem debug APK build 2026-09-02.
+Trigger Stem debug APK build 2026-09-02 after Spleeter AAR dependency fix.
