@@ -17,6 +17,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Re-dispatch after fixing root analysis of the nested plugin example.
           gh workflow run play_auto.yml \
             --repo Persie0/firebase_tester_builder \
             --ref main \
