@@ -38,6 +38,21 @@ jobs:
           echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
           echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
 
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Hosted Ubuntu runners contain several large SDKs that are unrelated
+          # to Android builds. Removing them leaves enough room for Flutter,
+          # Gradle and any NDK that AGP legitimately installs for native AARs.
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/lib/android/sdk/ndk || true
+          sudo rm -rf /usr/local/lib/android/sdk/cmake || true
+          df -h /
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -45,6 +60,11 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The command-line tools are installed by setup-android itself.
+          # Installing the legacy "tools" package also pulls the emulator and
+          # consumes gigabytes that a headless APK build never uses.
+          packages: platform-tools
 
       - name: Detect project type
         id: project
