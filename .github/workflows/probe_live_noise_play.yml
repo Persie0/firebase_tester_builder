@@ -12,7 +12,7 @@ jobs:
   probe:
     runs-on: ubuntu-latest
     steps:
-      - name: Query Google Play tracks
+      - name: Query Google Play tracks and testers
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         shell: bash
@@ -52,12 +52,12 @@ jobs:
           try:
               tracks = req('GET', f'{base}/edits/{edit_id}/tracks')
               bundles = req('GET', f'{base}/edits/{edit_id}/bundles')
-              apks = req('GET', f'{base}/edits/{edit_id}/apks')
+              testers = req('GET', f'{base}/edits/{edit_id}/testers/internal')
               print('BUNDLES=' + json.dumps(bundles, sort_keys=True))
-              print('APKS=' + json.dumps(apks, sort_keys=True))
               print('TRACKS=' + json.dumps(tracks, sort_keys=True))
               internal = [t for t in tracks.get('tracks', []) if t.get('track') == 'internal']
               print('INTERNAL_TRACK=' + json.dumps(internal, sort_keys=True))
+              print('INTERNAL_TESTERS=' + json.dumps(testers, sort_keys=True))
           finally:
               req('DELETE', f'{base}/edits/{edit_id}')
           PY
