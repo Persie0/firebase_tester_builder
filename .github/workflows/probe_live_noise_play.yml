@@ -1,0 +1,63 @@
+name: Probe live_noise_cancelling Play track
+
+on:
+  push:
+    branches:
+      - agent/probe-live-noise-play-20260907
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Query Google Play tracks
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --quiet google-auth
+          python - <<'PY'
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+          from google.auth.transport.requests import Request
+          from google.oauth2 import service_account
+
+          package_name = 'at.austriao.live_noise_cancelling'
+          info = json.loads(os.environ['SERVICE_ACCOUNT_JSON'])
+          credentials = service_account.Credentials.from_service_account_info(
+              info,
+              scopes=['https://www.googleapis.com/auth/androidpublisher'],
+          )
+          credentials.refresh(Request())
+          headers = {
+              'Authorization': f'Bearer {credentials.token}',
+              'Content-Type': 'application/json',
+          }
+          base = 'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/' + urllib.parse.quote(package_name, safe='')
+
+          def req(method, url, body=None):
+              data = None if body is None else json.dumps(body).encode('utf-8')
+              request = urllib.request.Request(url, data=data, headers=headers, method=method)
+              with urllib.request.urlopen(request, timeout=60) as response:
+                  raw = response.read().decode('utf-8')
+                  return json.loads(raw) if raw else {}
+
+          edit = req('POST', f'{base}/edits', {})
+          edit_id = edit['id']
+          try:
+              tracks = req('GET', f'{base}/edits/{edit_id}/tracks')
+              bundles = req('GET', f'{base}/edits/{edit_id}/bundles')
+              apks = req('GET', f'{base}/edits/{edit_id}/apks')
+              print('BUNDLES=' + json.dumps(bundles, sort_keys=True))
+              print('APKS=' + json.dumps(apks, sort_keys=True))
+              print('TRACKS=' + json.dumps(tracks, sort_keys=True))
+              internal = [t for t in tracks.get('tracks', []) if t.get('track') == 'internal']
+              print('INTERNAL_TRACK=' + json.dumps(internal, sort_keys=True))
+          finally:
+              req('DELETE', f'{base}/edits/{edit_id}')
+          PY
