@@ -30,12 +30,12 @@ jobs:
             exit 1
           fi
 
-      - name: Checkout audited Game branch
+      - name: Checkout current Game main
         uses: actions/checkout@v4
         with:
           repository: Persie0/Game
           token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
-          ref: feature/full-production-release
+          ref: main
           fetch-depth: 0
 
       - name: Resolve metadata
@@ -130,11 +130,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
         shell: bash
+        continue-on-error: true
         run: |
           set -euo pipefail
           TAG="debug-${SHORT_SHA}"
           TITLE="Museum Heist debug ${SHORT_SHA}"
-          NOTES="Audited ARM64 debug APK for Persie0/Game@${TARGET_SHA}. Built from feature/full-production-release by Persie0/firebase_tester_builder. Uses Google's sample AdMob application ID; this is a test build, not a production release."
+          NOTES="ARM64 debug APK for Persie0/Game@${TARGET_SHA}. Built from main by Persie0/firebase_tester_builder. Uses Google's sample AdMob application ID; this is a test build, not a production release."
 
           if gh release view "$TAG" --repo Persie0/Game >/dev/null 2>&1; then
             gh release upload "$TAG" \
