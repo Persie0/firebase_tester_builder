@@ -1,0 +1,159 @@
+name: Build Game Debug APK
+
+on:
+  push:
+    paths:
+      - '.github/workflows/debug_game_build.yml'
+      - 'debug_triggers/game.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: game-debug-apk
+  cancel-in-progress: true
+
+jobs:
+  build-game-debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$REPO_TOKEN" ]; then
+            echo '::error::GH_RELEASE_TOKEN or GH_TOKEN is required to read and publish the Game debug release.'
+            exit 1
+          fi
+
+      - name: Checkout audited Game branch
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Game
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          ref: feature/full-production-release
+          fetch-depth: 0
+
+      - name: Resolve metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "Building Persie0/Game@$TARGET_SHA"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter create . --platforms=android
+          flutter pub get
+
+      - name: Configure safe debug AdMob application ID
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          manifest = Path('android/app/src/main/AndroidManifest.xml')
+          text = manifest.read_text()
+          key = 'com.google.android.gms.ads.APPLICATION_ID'
+          if key not in text:
+              metadata = '''        <!-- Google official sample app ID. Debug builds only; never use for production. -->
+                  <meta-data
+                      android:name="com.google.android.gms.ads.APPLICATION_ID"
+                      android:value="ca-app-pub-3940256099942544~3347511713" />
+          '''
+              if '</application>' not in text:
+                  raise SystemExit('AndroidManifest.xml has no </application> element')
+              text = text.replace('</application>', metadata + '    </application>', 1)
+              manifest.write_text(text)
+          PY
+          grep -n -A2 -B1 'com.google.android.gms.ads.APPLICATION_ID' android/app/src/main/AndroidManifest.xml
+
+      - name: Verify audited source
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter analyze
+          flutter test
+
+      - name: Build ARM64 debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build apk --debug --target-platform android-arm64
+
+      - name: Prepare APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='build/app/outputs/flutter-apk/app-debug.apk'
+          test -f "$APK"
+          mkdir -p release-out
+          cp "$APK" release-out/museum-heist-debug-arm64.apk
+          sha256sum release-out/museum-heist-debug-arm64.apk | tee release-out/SHA256SUMS.txt
+          ls -lh release-out/museum-heist-debug-arm64.apk
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: museum-heist-debug-arm64-${{ env.SHORT_SHA }}
+          path: |
+            release-out/museum-heist-debug-arm64.apk
+            release-out/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish Game debug release
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="debug-${SHORT_SHA}"
+          TITLE="Museum Heist debug ${SHORT_SHA}"
+          NOTES="Audited ARM64 debug APK for Persie0/Game@${TARGET_SHA}. Built from feature/full-production-release by Persie0/firebase_tester_builder. Uses Google's sample AdMob application ID; this is a test build, not a production release."
+
+          if gh release view "$TAG" --repo Persie0/Game >/dev/null 2>&1; then
+            gh release upload "$TAG" \
+              release-out/museum-heist-debug-arm64.apk \
+              release-out/SHA256SUMS.txt \
+              --repo Persie0/Game --clobber
+          else
+            gh release create "$TAG" \
+              release-out/museum-heist-debug-arm64.apk \
+              release-out/SHA256SUMS.txt \
+              --repo Persie0/Game \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
+
+          RELEASE_URL="$(gh release view "$TAG" --repo Persie0/Game --json url --jq .url)"
+          echo "### Museum Heist debug APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $TARGET_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: $RELEASE_URL"
