@@ -1,7 +1,10 @@
 name: Debug Create App
-run-name: Debug APK · ${{ inputs.app }}
+run-name: Debug APK · ${{ github.event_name == 'workflow_dispatch' && inputs.app || '3dimageapp' }}
 
 on:
+  push:
+    paths:
+      - 'debug_triggers/3dimageapp.txt'
   workflow_dispatch:
     inputs:
       app:
@@ -23,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: debug-create-${{ inputs.owner }}-${{ inputs.app }}
+  group: debug-create-${{ github.event_name == 'workflow_dispatch' && inputs.owner || 'Persie0' }}-${{ github.event_name == 'workflow_dispatch' && inputs.app || '3dimageapp' }}
   cancel-in-progress: true
 
 jobs:
@@ -31,9 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     env:
-      TARGET_OWNER: ${{ inputs.owner }}
-      TARGET_APP: ${{ inputs.app }}
-      TARGET_REF: ${{ inputs.branch }}
+      TARGET_OWNER: ${{ github.event_name == 'workflow_dispatch' && inputs.owner || 'Persie0' }}
+      TARGET_APP: ${{ github.event_name == 'workflow_dispatch' && inputs.app || '3dimageapp' }}
+      TARGET_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.branch || '' }}
     steps:
       - name: Validate repository token
         env:
