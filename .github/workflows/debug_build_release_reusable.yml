@@ -177,12 +177,22 @@ jobs:
           ls -lh "$OUT"
 
       - name: Upload workflow artifact
+        id: artifact_upload
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.APP_NAME }}-debug-${{ env.SHORT_SHA }}
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
           retention-days: 14
+
+      - name: Note artifact upload fallback
+        if: steps.artifact_upload.outcome == 'failure'
+        shell: bash
+        run: |
+          echo '::warning::Actions artifact upload failed; continuing with GitHub Release publishing. This commonly happens when the Actions artifact-storage quota is full.'
+          echo '### Workflow artifact unavailable' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The APK still continues to GitHub Release publishing; Actions artifact upload failed (for example because artifact storage is full).' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish debug GitHub Release
         env:
