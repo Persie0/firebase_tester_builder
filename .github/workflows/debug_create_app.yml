@@ -49,6 +49,20 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve pushed target ref
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONTENT="$(gh api "repos/${GITHUB_REPOSITORY}/contents/debug_triggers/3dimageapp.txt?ref=${GITHUB_SHA}" --jq .content | base64 --decode)"
+          REQUESTED_SHA="$(printf '%s\n' "$CONTENT" | sed -n 's/^requested_sha=//p' | head -n1)"
+          if [ -n "$REQUESTED_SHA" ]; then
+            echo "TARGET_REF=$REQUESTED_SHA" >> "$GITHUB_ENV"
+            echo "Requested target ref: $REQUESTED_SHA"
+          fi
+
       - name: Checkout target app
         uses: actions/checkout@v4
         with:
@@ -133,6 +147,7 @@ jobs:
         run: |
           set -euo pipefail
           flutter pub get
+          flutter test
           flutter build apk --debug
 
       - name: Build Android debug APK with project wrapper
@@ -141,7 +156,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x android/gradlew
-          (cd android && ./gradlew :app:assembleDebug --stacktrace)
+          (cd android && ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace)
 
       - name: Build Android debug APK with root wrapper
         if: steps.project.outputs.type == 'gradle-wrapper-root'
@@ -149,7 +164,7 @@ jobs:
         run: |
           set -euo pipefail
           chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
 
       - name: Build Android debug APK with standalone Gradle
         if: startsWith(steps.project.outputs.type, 'gradle-system-')
@@ -157,9 +172,9 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ steps.project.outputs.type }}" = 'gradle-system-android' ]; then
-            gradle -p android :app:assembleDebug --stacktrace
+            gradle -p android :app:testDebugUnitTest :app:assembleDebug --stacktrace
           else
-            gradle :app:assembleDebug --stacktrace
+            gradle :app:testDebugUnitTest :app:assembleDebug --stacktrace
           fi
 
       - name: Select debug APK
@@ -193,6 +208,7 @@ jobs:
           retention-days: 14
 
       - name: Publish APK to target GitHub Release
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
         shell: bash
@@ -216,7 +232,7 @@ jobs:
               --title "$TITLE" \
               --notes "$NOTES" \
               --prerelease; then
-              echo '::error::APK build succeeded, but release publishing was denied. GH_RELEASE_TOKEN (or GH_TOKEN) must have Contents: read/write permission for the target repository.'
+              echo '::warning::APK build succeeded, but release publishing was denied. The Actions artifact remains available.'
               exit 1
             fi
           fi
