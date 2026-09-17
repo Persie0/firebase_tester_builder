@@ -1,5 +1,6 @@
 name: Dispatch noise_remover release
 
+# Reusable public-repo dispatcher for Noise Remover releases.
 on:
   push:
     paths:
