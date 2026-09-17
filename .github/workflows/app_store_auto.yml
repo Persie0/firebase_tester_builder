@@ -338,17 +338,49 @@ jobs:
             --api_key_path "$FASTLANE_API_KEY_PATH" \
             --skip_waiting_for_build_processing true
 
-      - name: Sentry upload
+      - name: Sentry / GlitchTip upload
         if: always() && hashFiles('pubspec.yaml') != ''
         continue-on-error: true
         env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_COM_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          GLITCHTIP_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
         run: |
-          if grep -q 'sentry_dart_plugin' pubspec.yaml; then
-            flutter packages pub run sentry_dart_plugin
-          else
+          set -euo pipefail
+
+          if ! grep -q 'sentry_dart_plugin' pubspec.yaml; then
             echo 'Sentry plugin not found; skipping upload.'
+            exit 0
           fi
+
+          SENTRY_URL="$(
+            awk '
+              /^sentry:[[:space:]]*$/ { in_sentry=1; next }
+              in_sentry && /^[^[:space:]]/ { exit }
+              in_sentry && /^[[:space:]]+url:[[:space:]]*/ {
+                sub(/^[[:space:]]+url:[[:space:]]*/, "")
+                print
+                exit
+              }
+            ' pubspec.yaml | tr -d "\"'"
+          )"
+
+          if [ -n "$SENTRY_URL" ] && [[ "$SENTRY_URL" != *"sentry.io"* ]]; then
+            if [ -z "${GLITCHTIP_AUTH_TOKEN:-}" ]; then
+              echo "::error::GLITCHTIP_AUTH_TOKEN is required for debug-symbol uploads to $SENTRY_URL"
+              exit 1
+            fi
+            export SENTRY_AUTH_TOKEN="$GLITCHTIP_AUTH_TOKEN"
+            echo "Using GlitchTip auth token for $SENTRY_URL"
+          else
+            if [ -z "${SENTRY_COM_AUTH_TOKEN:-}" ]; then
+              echo '::error::SENTRY_AUTH_TOKEN is required for sentry.io debug-symbol uploads.'
+              exit 1
+            fi
+            export SENTRY_AUTH_TOKEN="$SENTRY_COM_AUTH_TOKEN"
+            echo 'Using sentry.io auth token.'
+          fi
+
+          flutter packages pub run sentry_dart_plugin
 
       - name: Clean up signing material
         if: always()
