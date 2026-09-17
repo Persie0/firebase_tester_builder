@@ -15,7 +15,10 @@ Add these secrets to `Persie0/firebase_tester_builder` under **Settings → Secr
 | `APP_STORE_CONNECT_PRIVATE_KEY_BASE64` | Base64-encoded contents of the downloaded `AuthKey_<KEY_ID>.p8` file. |
 | `IOS_DISTRIBUTION_CERTIFICATE_BASE64` | Base64-encoded `.p12` containing an Apple Distribution certificate and its private key. |
 | `IOS_DISTRIBUTION_CERTIFICATE_PASSWORD` | Password used when exporting the `.p12`. |
-| `SENTRY_AUTH_TOKEN` | Optional; used only by apps containing `sentry_dart_plugin`. |
+| `SENTRY_AUTH_TOKEN` | Optional; token used for apps whose `sentry_dart_plugin` uploads to sentry.io. |
+| `GLITCHTIP_AUTH_TOKEN` | Optional; GlitchTip auth token used for apps whose `sentry:` block contains a custom non-sentry.io `url:`. Create it in GlitchTip under **Profile → Auth Tokens**. |
+
+The Android and iOS workflows inspect the selected app's `pubspec.yaml`. If the `sentry:` configuration has a custom `url:` such as `https://persie0.duckdns.org`, the upload step exposes `GLITCHTIP_AUTH_TOKEN` as `SENTRY_AUTH_TOKEN` to `sentry_dart_plugin`. If the URL is absent or points to sentry.io, it uses `SENTRY_AUTH_TOKEN` instead. This lets Sentry-hosted and GlitchTip-hosted apps share the same builder workflows without sharing credentials.
 
 The API key needs permission to upload builds to App Store Connect and access to Certificates, Identifiers & Profiles so Xcode can obtain provisioning profiles automatically. All selected apps are expected to belong to `APPLE_TEAM_ID`.
 
