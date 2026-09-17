@@ -6,7 +6,7 @@ on:
       - '.github/workflows/patch_play_auto_android_sdk.yml'
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   patch:
@@ -15,13 +15,9 @@ jobs:
     steps:
       - name: Patch obsolete Android SDK tools package
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [ -z "${GH_TOKEN:-}" ]; then
-            echo "::error::GH_TOKEN is missing"
-            exit 1
-          fi
 
           REPO=Persie0/firebase_tester_builder
           PATH_IN_REPO=.github/workflows/play_auto.yml
