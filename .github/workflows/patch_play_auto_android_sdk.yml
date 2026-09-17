@@ -1,0 +1,52 @@
+name: Patch Play builder Android SDK setup
+
+on:
+  push:
+    paths:
+      - '.github/workflows/patch_play_auto_android_sdk.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Patch obsolete Android SDK tools package
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN:-}" ]; then
+            echo "::error::GH_TOKEN is missing"
+            exit 1
+          fi
+
+          REPO=Persie0/firebase_tester_builder
+          PATH_IN_REPO=.github/workflows/play_auto.yml
+          SHA="$(gh api "repos/$REPO/contents/$PATH_IN_REPO?ref=main" --jq .sha)"
+          gh api "repos/$REPO/contents/$PATH_IN_REPO?ref=main" --jq .content | tr -d '\n' | base64 -d > play_auto.yml
+
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('play_auto.yml')
+          text = p.read_text()
+          old = "      - name: Setup Android SDK\n        uses: android-actions/setup-android@v3\n"
+          new = "      - name: Setup Android SDK\n        uses: android-actions/setup-android@v3\n        with:\n          packages: platform-tools\n"
+          if old not in text:
+              if new in text:
+                  print('Already patched')
+              else:
+                  raise SystemExit('Expected Setup Android SDK block not found')
+          else:
+              p.write_text(text.replace(old, new, 1))
+              print('Patched setup-android packages to platform-tools')
+          PY
+
+          CONTENT="$(base64 -w0 play_auto.yml)"
+          gh api --method PUT "repos/$REPO/contents/$PATH_IN_REPO" \
+            -f message='Fix obsolete Android SDK tools package' \
+            -f content="$CONTENT" \
+            -f sha="$SHA" \
+            -f branch=main
