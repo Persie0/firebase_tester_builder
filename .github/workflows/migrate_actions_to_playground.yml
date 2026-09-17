@@ -1,0 +1,319 @@
+name: Migrate specialized actions to Playground
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate_actions_to_playground.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Validate migration token
+        env:
+          MIGRATION_TOKEN: ${{ secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${MIGRATION_TOKEN:-}" ]; then
+            echo '::error::GH_TOKEN is required with Contents write access to Persie0/firebase_tester_builder and Persie0/Playground.'
+            exit 1
+          fi
+
+      - name: Check out builder
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+          path: builder
+
+      - name: Check out Playground
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Playground
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+          path: playground
+
+      - name: Copy specialized workflows and support files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          moved_workflows=(
+            appodeal_43_migrate_all.yml
+            appodeal_43_migrate_all_v2.yml
+            debug_game_build.yml
+            debug_stem_build.yml
+            dispatch_hanzi_hero_release.yml
+            dispatch_image_compressor_release.yml
+            dispatch_noise_remover_release.yml
+            dispatch_screendetector_release.yml
+            image_compressor_play_retry.yml
+            patch_optional_telegram.yml
+            patch_play_auto_android_sdk.yml
+            probe_image_compressor_release.yml
+            probe_screendetector_release.yml
+            report_screendetector_dispatch.yml
+            report_screendetector_release.yml
+            watch_image_compressor_release.yml
+          )
+
+          mkdir -p playground/.github/workflows playground/debug_triggers
+
+          for workflow in "${moved_workflows[@]}"; do
+            source_path="builder/.github/workflows/$workflow"
+            if [ ! -f "$source_path" ]; then
+              echo "::error::Missing source workflow: $source_path"
+              exit 1
+            fi
+            cp "$source_path" "playground/.github/workflows/$workflow"
+          done
+
+          for trigger in game.txt stem.txt; do
+            if [ ! -f "builder/debug_triggers/$trigger" ]; then
+              echo "::error::Missing source trigger: builder/debug_triggers/$trigger"
+              exit 1
+            fi
+            cp "builder/debug_triggers/$trigger" "playground/debug_triggers/$trigger"
+          done
+
+          if [ -d builder/release_triggers ]; then
+            rm -rf playground/release_triggers
+            cp -a builder/release_triggers playground/release_triggers
+          fi
+          if [ -d builder/release_status ]; then
+            rm -rf playground/release_status
+            cp -a builder/release_status playground/release_status
+          fi
+          if [ -d builder/.github/release-status ]; then
+            rm -rf playground/.github/release-status
+            cp -a builder/.github/release-status playground/.github/release-status
+          fi
+
+      - name: Adapt moved workflows for Playground
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          workflow_dir = Path('playground/.github/workflows')
+          names = [
+              'appodeal_43_migrate_all.yml',
+              'appodeal_43_migrate_all_v2.yml',
+              'debug_game_build.yml',
+              'debug_stem_build.yml',
+              'dispatch_hanzi_hero_release.yml',
+              'dispatch_image_compressor_release.yml',
+              'dispatch_noise_remover_release.yml',
+              'dispatch_screendetector_release.yml',
+              'image_compressor_play_retry.yml',
+              'patch_optional_telegram.yml',
+              'patch_play_auto_android_sdk.yml',
+              'probe_image_compressor_release.yml',
+              'probe_screendetector_release.yml',
+              'report_screendetector_dispatch.yml',
+              'report_screendetector_release.yml',
+              'watch_image_compressor_release.yml',
+          ]
+          current_token = '$' + '{{ github.token }}'
+          cross_repo_token = '$' + '{{ secrets.GH_TOKEN }}'
+          for name in names:
+              path = workflow_dir / name
+              text = path.read_text(encoding='utf-8')
+              text = text.replace(current_token, cross_repo_token)
+              text = text.replace('Check out builder repository', 'Check out Playground repository')
+              path.write_text(text, encoding='utf-8')
+          PY
+
+          cat > playground/.github/workflows/report_screendetector_release.yml <<'EOF'
+          name: Record screendetector release result
+
+          on:
+            workflow_dispatch:
+            schedule:
+              - cron: '23 */6 * * *'
+
+          permissions:
+            contents: write
+
+          jobs:
+            record-result:
+              runs-on: ubuntu-latest
+              steps:
+                - name: Check out Playground repository
+                  uses: actions/checkout@v4
+                  with:
+                    ref: main
+
+                - name: Record latest screendetector Play release
+                  env:
+                    GH_TOKEN: __CROSS_REPO_TOKEN__
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    RUN_JSON="$(gh run list \
+                      --repo Persie0/firebase_tester_builder \
+                      --workflow play_auto.yml \
+                      --event workflow_dispatch \
+                      --limit 50 \
+                      --json databaseId,displayTitle,status,conclusion,createdAt,updatedAt,url,headSha,headBranch \
+                      --jq '[.[] | select(.displayTitle | contains("Deploy screendetector"))][0]')"
+
+                    if [ -z "$RUN_JSON" ] || [ "$RUN_JSON" = "null" ]; then
+                      echo 'No screendetector Play release found.'
+                      exit 0
+                    fi
+
+                    mkdir -p .github/release-status
+                    printf '%s\n' "$RUN_JSON" | jq -r '
+                      "# screendetector release result\n\n" +
+                      "- Title: " + (.displayTitle // "") + "\n" +
+                      "- Run ID: " + ((.databaseId // 0) | tostring) + "\n" +
+                      "- Conclusion: " + (.conclusion // "") + "\n" +
+                      "- Status: " + (.status // "") + "\n" +
+                      "- Source branch: " + (.headBranch // "") + "\n" +
+                      "- Source SHA: " + (.headSha // "") + "\n" +
+                      "- Created: " + (.createdAt // "") + "\n" +
+                      "- Updated: " + (.updatedAt // "") + "\n" +
+                      "- Run: " + (.url // "")
+                    ' > .github/release-status/screendetector-latest.md
+
+                - name: Commit result when changed
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    git config user.name 'github-actions[bot]'
+                    git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+                    git add .github/release-status/screendetector-latest.md
+                    if git diff --cached --quiet; then
+                      exit 0
+                    fi
+                    git commit -m 'ci: record screendetector release result [skip ci]'
+                    git push origin HEAD:main
+          EOF
+
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('playground/.github/workflows/report_screendetector_release.yml')
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('__CROSS_REPO_TOKEN__', '$' + '{{ secrets.GH_TOKEN }}')
+          # The here-doc is indented to fit the migration workflow; remove that common indentation.
+          lines = text.splitlines()
+          nonempty = [line for line in lines if line.strip()]
+          indent = min(len(line) - len(line.lstrip()) for line in nonempty) if nonempty else 0
+          text = '\n'.join(line[indent:] if len(line) >= indent else line for line in lines) + '\n'
+          path.write_text(text, encoding='utf-8')
+          PY
+
+      - name: Verify Playground migration payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          moved_workflows=(
+            appodeal_43_migrate_all.yml
+            appodeal_43_migrate_all_v2.yml
+            debug_game_build.yml
+            debug_stem_build.yml
+            dispatch_hanzi_hero_release.yml
+            dispatch_image_compressor_release.yml
+            dispatch_noise_remover_release.yml
+            dispatch_screendetector_release.yml
+            image_compressor_play_retry.yml
+            patch_optional_telegram.yml
+            patch_play_auto_android_sdk.yml
+            probe_image_compressor_release.yml
+            probe_screendetector_release.yml
+            report_screendetector_dispatch.yml
+            report_screendetector_release.yml
+            watch_image_compressor_release.yml
+          )
+          for workflow in "${moved_workflows[@]}"; do
+            test -s "playground/.github/workflows/$workflow"
+          done
+          test -s playground/debug_triggers/game.txt
+          test -s playground/debug_triggers/stem.txt
+
+          if grep -Fq 'GH_TOKEN: ${{ github.token }}' playground/.github/workflows/{dispatch_hanzi_hero_release,dispatch_image_compressor_release,dispatch_noise_remover_release,dispatch_screendetector_release,image_compressor_play_retry,probe_image_compressor_release,probe_screendetector_release,watch_image_compressor_release,patch_optional_telegram,patch_play_auto_android_sdk}.yml; then
+            echo '::error::A moved cross-repository workflow still uses github.token.'
+            exit 1
+          fi
+          if grep -Fq 'workflow_run:' playground/.github/workflows/report_screendetector_release.yml; then
+            echo '::error::screendetector release reporter still depends on cross-repository workflow_run.'
+            exit 1
+          fi
+
+      - name: Commit migrated files to Playground
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd playground
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows debug_triggers release_triggers release_status .github/release-status 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo 'No Playground changes to commit.'
+          else
+            git commit -m 'ci: move specialized builder actions to Playground [skip ci]'
+            git push origin HEAD:main
+          fi
+
+      - name: Remove migrated files from builder
+        shell: bash
+        run: |
+          set -euo pipefail
+          moved_workflows=(
+            appodeal_43_migrate_all.yml
+            appodeal_43_migrate_all_v2.yml
+            debug_game_build.yml
+            debug_stem_build.yml
+            dispatch_hanzi_hero_release.yml
+            dispatch_image_compressor_release.yml
+            dispatch_noise_remover_release.yml
+            dispatch_screendetector_release.yml
+            image_compressor_play_retry.yml
+            patch_optional_telegram.yml
+            patch_play_auto_android_sdk.yml
+            probe_image_compressor_release.yml
+            probe_screendetector_release.yml
+            report_screendetector_dispatch.yml
+            report_screendetector_release.yml
+            watch_image_compressor_release.yml
+          )
+
+          cd builder
+          for workflow in "${moved_workflows[@]}"; do
+            rm -f ".github/workflows/$workflow"
+          done
+          rm -f debug_triggers/game.txt debug_triggers/stem.txt
+          rm -rf release_triggers release_status .github/release-status
+          rm -f .github/workflows/migrate_actions_to_playground.yml
+
+          expected=$'app_store_auto.yml\ndebug_build_release_reusable.yml\ndebug_create_app.yml\nplay_auto.yml'
+          actual="$(find .github/workflows -maxdepth 1 -type f -printf '%f\n' | sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo '::error::Unexpected final builder workflow inventory:'
+            printf '%s\n' "$actual"
+            exit 1
+          fi
+          test -s debug_triggers/3dimageapp.txt
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'No builder cleanup changes to commit.'
+          else
+            git commit -m 'ci: keep only general release and debug workflows [skip ci]'
+            git push origin HEAD:main
+          fi
