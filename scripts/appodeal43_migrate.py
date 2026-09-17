@@ -2,22 +2,94 @@ from pathlib import Path
 import re
 import urllib.request
 
+# iOS adapter versions come from the Appodeal Flutter 4.3.0 release README.
 README_URL = 'https://raw.githubusercontent.com/appodeal/Appodeal-Flutter-Plugin/78efea95e6215d7af8acf1f283d77ed4089c6d80/README.md'
 readme = urllib.request.urlopen(README_URL, timeout=60).read().decode('utf-8')
-
-android_versions = {}
-for m in re.finditer(r'implementation\s*(?:\(\s*)?["\']([^"\']+)["\']\s*\)?', readme):
-    gav = m.group(1)
-    if gav.count(':') >= 2:
-        ga, version = gav.rsplit(':', 1)
-        android_versions[ga] = version
-android_versions['com.appodeal.ads.sdk:core'] = '4.3.0'
-
 ios_versions = {
     m.group(1): m.group(2)
     for m in re.finditer(r"pod\s+['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]", readme)
 }
 ios_versions['Appodeal'] = '4.3.0'
+
+# Android versions are the current Appodeal 4.3.0 Configure Mediated Networks
+# recommendations supplied from the Appodeal docs on 2026-09-17. We update only
+# dependencies the app already selected; we do not add extra ad networks.
+android_versions = {
+    'com.appodeal.ads.sdk:core': '4.3.0',
+    'io.bidmachine:ads.networks.amazon': '12.0.0.0',
+    'io.bidmachine:ads.networks.meta_audience': '6.21.0.1',
+    'io.bidmachine:ads.networks.mintegral': '17.1.61.1',
+    'io.bidmachine:ads.networks.my_target': '5.47.1.2',
+    'io.bidmachine:ads.networks.vungle': '7.7.4.0',
+    'com.applovin.mediation:amazon-tam-adapter': '11.3.1.0',
+    'com.applovin.mediation:bidmachine-adapter': '3.7.1.0',
+    'com.applovin.mediation:bigoads-adapter': '5.9.0.0',
+    'com.applovin.mediation:bytedance-adapter': '8.1.0.3.0',
+    'com.applovin.mediation:chartboost-adapter': '9.10.2.0',
+    'com.applovin.mediation:facebook-adapter': '6.21.0.0',
+    'com.applovin.mediation:fyber-adapter': '8.4.6.0',
+    'com.applovin.mediation:google-ad-manager-adapter': '25.2.0.0',
+    'com.applovin.mediation:google-adapter': '25.2.0.0',
+    'com.applovin.mediation:inmobi-adapter': '11.3.0.1',
+    'com.applovin.mediation:mintegral-adapter': '17.1.61.0',
+    'com.applovin.mediation:mobilefuse-adapter': '1.11.0.0',
+    'com.applovin.mediation:moloco-adapter': '4.3.1.0',
+    'com.applovin.mediation:ogury-presage-adapter': '6.2.0.0',
+    'com.applovin.mediation:pubmatic-adapter': '4.10.0.0',
+    'com.applovin.mediation:smaato-adapter': '22.7.2.3',
+    'com.applovin.mediation:unityads-adapter': '4.17.0.0',
+    'com.applovin.mediation:verve-adapter': '3.7.1.0',
+    'com.applovin.mediation:vungle-adapter': '7.7.4.0',
+    'com.applovin.mediation:yandex-adapter': '7.17.0.0',
+    'org.bidon:amazon-adapter': '12.0.0.0',
+    'org.bidon:applovin-adapter': '13.6.3.0',
+    'org.bidon:bidmachine-adapter': '3.7.1.1',
+    'org.bidon:bigoads-adapter': '5.9.0.0',
+    'org.bidon:chartboost-adapter': '9.10.2.0',
+    'org.bidon:dtexchange-adapter': '8.4.6.0',
+    'org.bidon:inmobi-adapter': '11.3.0.0',
+    'org.bidon:meta-adapter': '6.21.0.0',
+    'org.bidon:mintegral-adapter': '17.1.61.0',
+    'org.bidon:mobilefuse-adapter': '1.11.0.0',
+    'org.bidon:moloco-adapter': '4.3.1.0',
+    'org.bidon:startio-adapter': '5.2.4.1',
+    'org.bidon:taurusx-adapter': '1.12.2.0',
+    'org.bidon:unityads-adapter': '4.17.0.0',
+    'org.bidon:vkads-adapter': '5.47.1.0',
+    'org.bidon:vungle-adapter': '7.7.4.0',
+    'org.bidon:yandex-adapter': '7.17.0.0',
+    'org.bidon:zmaticoo-adapter': '2.0.7.1.0',
+    'com.appodeal.ads.sdk.adapters:adjust': '5.7.0.0',
+    'com.appodeal.ads.sdk.adapters:admob': '25.2.0.0',
+    'com.appodeal.ads.sdk.adapters:amazon': '12.0.0.0',
+    'com.appodeal.ads.sdk.adapters:applovin': '13.6.3.0',
+    'com.appodeal.ads.sdk.adapters:applovin_max': '13.6.3.1',
+    'com.appodeal.ads.sdk.adapters:appsflyer': '6.18.0.1',
+    'com.appodeal.ads.sdk.adapters:bidmachine': '3.7.1.0',
+    'com.appodeal.ads.sdk.adapters:bidon': '0.14.0.0',
+    'com.appodeal.ads.sdk.adapters:bigo_ads': '5.9.0.0',
+    'com.appodeal.ads.sdk.adapters:chartboost': '9.10.2.0',
+    'com.appodeal.ads.sdk.adapters:dt_exchange': '8.4.6.0',
+    'com.appodeal.ads.sdk.adapters:facebook_analytics': '18.3.0.0',
+    'com.appodeal.ads.sdk.adapters:firebase': '23.2.0.0',
+    'com.appodeal.ads.sdk.adapters:iab': '1.8.1.0',
+    'com.appodeal.ads.sdk.adapters:inmobi': '11.3.0.0',
+    'com.appodeal.ads.sdk.adapters:meta': '6.21.0.0',
+    'com.appodeal.ads.sdk.adapters:mintegral': '17.1.61.0',
+    'com.appodeal.ads.sdk.adapters:mobilefuse': '1.11.0.0',
+    'com.appodeal.ads.sdk.adapters:moloco': '4.3.1.0',
+    'com.appodeal.ads.sdk.adapters:my_target': '5.47.1.0',
+    'com.appodeal.ads.sdk.adapters:ogury': '6.2.0.0',
+    'com.appodeal.ads.sdk.adapters:pubmatic': '4.10.0.0',
+    'com.appodeal.ads.sdk.adapters:sentry_analytics': '8.44.1.0',
+    'com.appodeal.ads.sdk.adapters:smaato': '22.7.2.0',
+    'com.appodeal.ads.sdk.adapters:startio': '5.2.4.0',
+    'com.appodeal.ads.sdk.adapters:taurusx': '1.12.2.0',
+    'com.appodeal.ads.sdk.adapters:unity_ads': '4.17.0.0',
+    'com.appodeal.ads.sdk.adapters:verve': '3.7.1.0',
+    'com.appodeal.ads.sdk.adapters:vungle': '7.7.4.0',
+    'com.appodeal.ads.sdk.adapters:yandex': '7.17.0.0',
+}
 
 
 def write(path, text):
@@ -28,18 +100,16 @@ def write(path, text):
         path.write_text(text)
 
 
-def bump_minimum(text, patterns, minimum):
-    for pattern in patterns:
-        def repl(m):
-            value = float(m.group(2)) if '.' in m.group(2) else int(m.group(2))
-            new_value = max(value, minimum)
-            if isinstance(new_value, float):
-                rendered = f'{new_value:.1f}'
-            else:
-                rendered = str(new_value)
-            return m.group(1) + rendered + (m.group(3) if m.lastindex and m.lastindex >= 3 else '')
-        text = re.sub(pattern, repl, text)
-    return text
+def is_ironsource_or_levelplay(text):
+    low = text.lower()
+    return (
+        'ironsource' in low
+        or 'level_play' in low
+        or 'levelplay' in low
+        or 'level play' in low
+        or 'com.unity3d.ads-mediation:' in low
+    )
+
 
 # Flutter dependency.
 pubspec = Path('pubspec.yaml')
@@ -50,20 +120,12 @@ s = re.sub(r'(?m)^(\s*stack_appodeal_flutter:\s*)[^\s#]+', r'\g<1>^4.3.0', s)
 write(pubspec, s)
 
 # Android: update the explicit Appodeal/adapter versions already selected by the
-# app, remove all IronSource / Unity LevelPlay artifacts, and enforce minSdk 24.
+# app, remove every IronSource/Unity LevelPlay artifact, and enforce minSdk 24.
 app_gradles = [p for p in Path('android/app').glob('build.gradle*') if p.is_file()]
 if not app_gradles:
     raise SystemExit('android app Gradle file missing')
 for p in app_gradles:
-    s = p.read_text()
-    lines = []
-    for line in s.splitlines(True):
-        low = line.lower()
-        if ('ironsource' in low or 'level_play' in low or 'levelplay' in low or
-                'level play' in low or 'com.unity3d.ads-mediation:' in low):
-            continue
-        lines.append(line)
-    s = ''.join(lines)
+    s = ''.join(line for line in p.read_text().splitlines(True) if not is_ironsource_or_levelplay(line))
 
     for ga, ver in android_versions.items():
         s = re.sub(rf'(["\']){re.escape(ga)}:[^"\']+(["\'])', rf'\g<1>{ga}:{ver}\g<2>', s)
@@ -90,22 +152,14 @@ podfile = Path('ios/Podfile')
 if podfile.exists():
     s = podfile.read_text()
 
-    # Remove complete IronSource-specific post_install blocks before filtering
-    # individual dependency/comment lines, otherwise their trailing `end` would
-    # make the Ruby Podfile invalid.
+    # Remove complete IronSource-specific post_install blocks before line-level
+    # filtering so their trailing `end` cannot make the Ruby Podfile invalid.
     s = re.sub(
         r'(?ms)^\s*Dir\.glob\([^\n]*IronSource[^\n]*\)\.each do \|[^|]+\|\n.*?^\s*end\s*\n',
         '',
         s,
     )
-
-    lines = []
-    for line in s.splitlines(True):
-        low = line.lower()
-        if ('ironsource' in low or 'levelplay' in low or 'level play' in low):
-            continue
-        lines.append(line)
-    s = ''.join(lines)
+    s = ''.join(line for line in s.splitlines(True) if not is_ironsource_or_levelplay(line))
 
     for name, ver in ios_versions.items():
         s = re.sub(
@@ -163,8 +217,8 @@ if p.exists():
     write(p, s)
 
 # Appodeal 4.3 privacy override. Existing ATT/CMP code determines whether this
-# initialization path may be reached at all. Non-personalized mode is set only
-# after those gates, directly before initialization.
+# initialization path may be reached at all. Non-personalized mode is set after
+# those gates and immediately before SDK initialization.
 for p in Path('lib').rglob('*.dart'):
     lines = p.read_text().splitlines(True)
     out = []
