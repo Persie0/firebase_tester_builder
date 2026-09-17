@@ -1,0 +1,310 @@
+name: Appodeal 4.3 migrate all apps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/appodeal_43_migrate_all.yml'
+
+jobs:
+  migrate:
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - repo: Persie0/recorder_noise_remove
+            branch: chore/appodeal-4-3-no-ironsource
+          - repo: Persie0/noise_remover
+            branch: chore/appodeal-4-3-no-ironsource
+          - repo: Persie0/image_enhancer
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/Memory_Palace_Builder
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/resistor_scanner
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/root_detection_app
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/live_noise_cancelling
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/resistor-calc
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/face_scanner
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/fake_gps_detector
+            branch: fix/ios-att-appodeal-gate
+          - repo: Persie0/surebets_calculator
+            branch: fix/ios-att-appodeal-gate
+
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Clone target branch
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          TARGET_REPO: ${{ matrix.repo }}
+          TARGET_BRANCH: ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          gh repo clone "$TARGET_REPO" target -- --branch "$TARGET_BRANCH" --single-branch
+          cd target
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Patch Appodeal dependencies and privacy defaults
+        env:
+          TARGET_REPO: ${{ matrix.repo }}
+        run: |
+          set -euo pipefail
+          cd target
+          python3 <<'PY'
+          from pathlib import Path
+          import re, urllib.request
+
+          README_URL = 'https://raw.githubusercontent.com/appodeal/Appodeal-Flutter-Plugin/78efea95e6215d7af8acf1f283d77ed4089c6d80/README.md'
+          readme = urllib.request.urlopen(README_URL, timeout=60).read().decode('utf-8')
+
+          android_versions = {}
+          for m in re.finditer(r'implementation\s*(?:\(\s*)?["\']([^"\']+)["\']\s*\)?', readme):
+              gav = m.group(1)
+              if gav.count(':') >= 2:
+                  ga, version = gav.rsplit(':', 1)
+                  android_versions[ga] = version
+          android_versions['com.appodeal.ads.sdk:core'] = '4.3.0'
+
+          ios_versions = {
+              m.group(1): m.group(2)
+              for m in re.finditer(r"pod\s+['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]", readme)
+          }
+          ios_versions['Appodeal'] = '4.3.0'
+
+          def write(path, text):
+              path = Path(path)
+              old = path.read_text() if path.exists() else None
+              if old != text:
+                  path.parent.mkdir(parents=True, exist_ok=True)
+                  path.write_text(text)
+
+          pubspec = Path('pubspec.yaml')
+          if pubspec.exists():
+              s = pubspec.read_text()
+              s = re.sub(r'(?m)^(\s*stack_appodeal_flutter:\s*)[^\s#]+', r'\g<1>^4.3.0', s)
+              write(pubspec, s)
+
+          app_gradles = [p for p in (Path('android/app').glob('build.gradle*')) if p.is_file()]
+          for p in app_gradles:
+              s = p.read_text()
+              kept = []
+              for line in s.splitlines(True):
+                  low = line.lower()
+                  if ('ironsource' in low or 'level_play' in low or 'levelplay' in low or
+                      'level play' in low or 'com.unity3d.ads-mediation:' in low):
+                      continue
+                  kept.append(line)
+              s = ''.join(kept)
+              for ga, ver in android_versions.items():
+                  s = re.sub(rf'(["\']){re.escape(ga)}:[^"\']+(["\'])', rf'\g<1>{ga}:{ver}\g<2>', s)
+
+              s = re.sub(r'minSdk\s*=\s*flutter\.minSdkVersion', 'minSdk = 24', s)
+              s = re.sub(r'minSdkVersion\s*=\s*flutter\.minSdkVersion', 'minSdkVersion = 24', s)
+              s = re.sub(r'minSdkVersion\s+flutter\.minSdkVersion', 'minSdkVersion 24', s)
+              def bump(m):
+                  return m.group(1) + str(max(int(m.group(2)), 24))
+              s = re.sub(r'(minSdk\s*=\s*)(\d+)', bump, s)
+              s = re.sub(r'(minSdkVersion\s*=\s*)(\d+)', bump, s)
+              s = re.sub(r'(minSdkVersion\s+)(\d+)', bump, s)
+
+              if 'com.appodeal.ads.sdk:core:' not in s:
+                  dep = '    implementation("com.appodeal.ads.sdk:core:4.3.0")\n'
+                  m = re.search(r'(?m)^dependencies\s*\{\s*\n', s)
+                  if m:
+                      s = s[:m.end()] + dep + s[m.end():]
+                  else:
+                      s = s.rstrip() + '\n\ndependencies {\n' + dep + '}\n'
+              write(p, s)
+
+          podfile = Path('ios/Podfile')
+          if podfile.exists():
+              s = podfile.read_text()
+              kept = []
+              for line in s.splitlines(True):
+                  low = line.lower()
+                  if 'ironsource' in low or 'levelplay' in low or 'level play' in low:
+                      continue
+                  kept.append(line)
+              s = ''.join(kept)
+              for name, ver in ios_versions.items():
+                  s = re.sub(rf"(pod\s+['\"]{re.escape(name)}['\"]\s*,\s*['\"])[^'\"]+(['\"])", rf'\g<1>{ver}\g<2>', s)
+              if re.search(r'(?m)^\s*platform\s+:ios', s):
+                  s = re.sub(r"(?m)^\s*platform\s+:ios\s*,\s*['\"][^'\"]+['\"]", "platform :ios, '15.0'", s)
+              else:
+                  s = "platform :ios, '15.0'\n" + s
+              s = re.sub(r"(IPHONEOS_DEPLOYMENT_TARGET['\"]?\]?\s*=\s*['\"])[0-9.]+(['\"])", r'\g<1>15.0\g<2>', s)
+              write(podfile, s)
+
+          for p in Path('ios').rglob('project.pbxproj'):
+              s = p.read_text()
+              s = re.sub(r'IPHONEOS_DEPLOYMENT_TARGET = [0-9.]+;', 'IPHONEOS_DEPLOYMENT_TARGET = 15.0;', s)
+              write(p, s)
+
+          p = Path('ios/Flutter/AppFrameworkInfo.plist')
+          if p.exists():
+              s = p.read_text()
+              s = re.sub(r'(<key>MinimumOSVersion</key>\s*<string>)[^<]+(</string>)', r'\g<1>15.0\g<2>', s)
+              write(p, s)
+
+          p = Path('ios/Runner/Info.plist')
+          if p.exists():
+              s = p.read_text()
+              if 'NSUserTrackingUsageDescription' not in s:
+                  addition = ('\t<key>NSUserTrackingUsageDescription</key>\n'
+                              '\t<string>Tracking permission controls whether advertising services may access device identifiers.</string>\n')
+                  pos = s.rfind('</dict>')
+                  if pos < 0:
+                      raise SystemExit('Info.plist has no closing dict')
+                  s = s[:pos] + addition + s[pos:]
+              write(p, s)
+
+          # Privacy-first Appodeal 4.3 behavior: only runs on paths that already
+          # reached Appodeal initialization, after the ATT/CMP gates.
+          for p in Path('lib').rglob('*.dart'):
+              lines = p.read_text().splitlines(True)
+              out = []
+              changed = False
+              for line in lines:
+                  if 'Appodeal.initialize(' in line:
+                      recent = ''.join(out[-10:])
+                      if 'Appodeal.setNonPersonalized(true)' not in recent:
+                          indent = line[:len(line) - len(line.lstrip())]
+                          out.append(indent + 'Appodeal.setNonPersonalized(true);\n')
+                          changed = True
+                  out.append(line)
+              if changed:
+                  p.write_text(''.join(out))
+
+          # Remove only temporary workflows created for this ATT review; preserve
+          # repository CI and all source-history commits.
+          wf = Path('.github/workflows')
+          if wf.exists():
+              for p in wf.glob('oneoff-att-*.yml'):
+                  p.unlink()
+              for p in wf.glob('oneoff-att-*.yaml'):
+                  p.unlink()
+
+          # Small PR-review fixes that are independent of the SDK migration.
+          repo = Path('.git').parent.name
+
+          # Settings consent forms: re-check ATT immediately before showing an
+          # asynchronously loaded Appodeal form when the common callback shape exists.
+          for rel in ('lib/settings_screen.dart', 'lib/settings_page.dart'):
+              p = Path(rel)
+              if not p.exists():
+                  continue
+              s = p.read_text()
+              if 'IosAttAdGate.canUseAppodeal()' not in s:
+                  continue
+              patterns = [
+                  ('onConsentFormLoadSuccess: (status) {', 'onConsentFormLoadSuccess: (status) async {'),
+              ]
+              for old, new in patterns:
+                  if old in s and 'Appodeal.ConsentForm.show' in s:
+                      s = s.replace(old, new, 1)
+                      marker = new
+                      i = s.index(marker) + len(marker)
+                      insert = "\n        if (!await IosAttAdGate.canUseAppodeal()) return;"
+                      if insert.strip() not in s[i:i+500]:
+                          s = s[:i] + insert + s[i:]
+                      break
+              write(p, s)
+          PY
+
+          flutter pub get
+          git diff --check
+
+      - name: Resolve iOS pods
+        id: pods
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          cd target
+          if [ -f ios/Podfile ]; then
+            cd ios
+            pod install --repo-update
+          fi
+
+      - name: Verify migration invariants
+        run: |
+          set -euo pipefail
+          cd target
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          pub = Path('pubspec.yaml').read_text()
+          assert re.search(r'(?m)^\s*stack_appodeal_flutter:\s*\^?4\.3\.0\s*$', pub), 'Flutter Appodeal is not 4.3.0'
+
+          for p in Path('android/app').glob('build.gradle*'):
+              s = p.read_text()
+              low = s.lower()
+              assert 'ironsource' not in low, f'IronSource remains in {p}'
+              assert 'level_play' not in low and 'levelplay' not in low and 'com.unity3d.ads-mediation:' not in low, f'Level Play remains in {p}'
+              assert 'com.appodeal.ads.sdk:core:4.3.0' in s, f'Appodeal core not 4.3.0 in {p}'
+              vals = [int(x) for x in re.findall(r'minSdk(?:Version)?\s*(?:=\s*)?(\d+)', s)]
+              assert not vals or min(vals) >= 24, f'Android minSdk below 24 in {p}: {vals}'
+
+          pod = Path('ios/Podfile')
+          if pod.exists():
+              s = pod.read_text()
+              low = s.lower()
+              assert "platform :ios, '15.0'" in s, 'Podfile iOS target is not 15.0'
+              assert 'ironsource' not in low and 'levelplay' not in low, 'IronSource/LevelPlay remains in Podfile'
+
+          for p in Path('ios').rglob('project.pbxproj'):
+              vals = [float(x) for x in re.findall(r'IPHONEOS_DEPLOYMENT_TARGET = ([0-9.]+);', p.read_text())]
+              assert not vals or min(vals) >= 15.0, f'iOS deployment target below 15 in {p}: {vals}'
+
+          init_count = 0
+          np_count = 0
+          for p in Path('lib').rglob('*.dart'):
+              s = p.read_text()
+              init_count += s.count('Appodeal.initialize(')
+              np_count += s.count('Appodeal.setNonPersonalized(true)')
+          assert init_count == 0 or np_count >= init_count, f'missing setNonPersonalized before initialize: init={init_count}, np={np_count}'
+
+          for p in Path('.github/workflows').glob('oneoff-att-*'):
+              raise AssertionError(f'temporary workflow remains: {p}')
+          PY
+
+      - name: Commit and push migration
+        env:
+          TARGET_BRANCH: ${{ matrix.branch }}
+        run: |
+          set -euo pipefail
+          cd target
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No migration changes needed"
+            exit 0
+          fi
+          git commit -m "Upgrade Appodeal to 4.3.0 and remove IronSource"
+          git push origin "HEAD:$TARGET_BRANCH"
+
+      - name: Android debug build
+        run: |
+          set -euo pipefail
+          cd target
+          flutter build apk --debug
+
+      - name: Report pod resolution failure
+        if: steps.pods.outcome == 'failure'
+        run: |
+          echo '::warning::pod install failed; Android/source migration was still committed and will need iOS dependency-resolution review.'
