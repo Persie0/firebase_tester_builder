@@ -328,35 +328,68 @@ jobs:
             exit 0
           fi
 
-          SENTRY_URL="$(
-            awk '
+          sentry_config_value() {
+            local key="$1"
+            awk -v wanted="$key" '
               /^sentry:[[:space:]]*$/ { in_sentry=1; next }
               in_sentry && /^[^[:space:]]/ { exit }
-              in_sentry && /^[[:space:]]+url:[[:space:]]*/ {
-                sub(/^[[:space:]]+url:[[:space:]]*/, "")
+              in_sentry && $0 ~ "^[[:space:]]+" wanted ":[[:space:]]*" {
+                sub("^[[:space:]]+" wanted ":[[:space:]]*", "")
                 print
                 exit
               }
             ' pubspec.yaml | tr -d "\"'"
-          )"
+          }
+
+          SENTRY_URL="$(sentry_config_value url)"
+          SENTRY_ORG="$(sentry_config_value org)"
+          SENTRY_PROJECT="$(sentry_config_value project)"
 
           if [ -n "$SENTRY_URL" ] && [[ "$SENTRY_URL" != *"sentry.io"* ]]; then
             if [ -z "${GLITCHTIP_AUTH_TOKEN:-}" ]; then
               echo "::error::GLITCHTIP_AUTH_TOKEN is required for debug-symbol uploads to $SENTRY_URL"
               exit 1
             fi
+            if [ -z "$SENTRY_ORG" ] || [ -z "$SENTRY_PROJECT" ]; then
+              echo '::error::GlitchTip uploads require sentry.org and sentry.project in pubspec.yaml.'
+              exit 1
+            fi
+
             export SENTRY_AUTH_TOKEN="$GLITCHTIP_AUTH_TOKEN"
-            echo "Using GlitchTip auth token for $SENTRY_URL"
+            export SENTRY_URL
+            export SENTRY_ORG
+            export SENTRY_PROJECT
+
+            echo "Using GlitchTip CLI for $SENTRY_URL ($SENTRY_ORG/$SENTRY_PROJECT)"
+            curl -fsSL https://glitchtip.com/install.sh | sh
+            export PATH="$HOME/.local/bin:$PATH"
+            command -v glitchtip-cli >/dev/null || {
+              echo '::error::glitchtip-cli installation failed.'
+              exit 1
+            }
+
+            mapfile -t SYMBOL_FILES < <(
+              find build -maxdepth 1 -type f -name 'app.android-*.symbols' -print | sort
+            )
+            if [ "${#SYMBOL_FILES[@]}" -eq 0 ]; then
+              echo '::error::No Flutter split-debug-info files found in build/.'
+              exit 1
+            fi
+
+            echo "Uploading ${#SYMBOL_FILES[@]} Flutter debug symbol file(s) to GlitchTip."
+            for symbol_file in "${SYMBOL_FILES[@]}"; do
+              ls -lh "$symbol_file"
+              glitchtip-cli debug-files upload "$symbol_file"
+            done
           else
             if [ -z "${SENTRY_COM_AUTH_TOKEN:-}" ]; then
               echo '::error::SENTRY_AUTH_TOKEN is required for sentry.io debug-symbol uploads.'
               exit 1
             fi
             export SENTRY_AUTH_TOKEN="$SENTRY_COM_AUTH_TOKEN"
-            echo 'Using sentry.io auth token.'
+            echo 'Using sentry.io auth token and sentry_dart_plugin.'
+            flutter packages pub run sentry_dart_plugin
           fi
-
-          flutter packages pub run sentry_dart_plugin
 
       - name: Download bundletool
         if: inputs.build_apk || inputs.run_tests
