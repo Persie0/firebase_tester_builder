@@ -1,0 +1,131 @@
+name: Final Google login repo verification
+
+on:
+  push:
+    paths:
+      - .github/workflows/google_login_repos_final_verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: memory-palace
+            repository: Persie0/Memory_Palace_Builder
+          - label: mwst-buchhalter
+            repository: Persie0/mwst_buchhalter
+          - label: vitamindtracker
+            repository: Persie0/vitamindtracker
+          - label: nomadrank
+            repository: Persie0/skratch_clone
+          - label: norwegian-yoyillo
+            repository: Persie0/norwegian_yoyillo
+          - label: punisher
+            repository: Persie0/punisher
+
+    env:
+      APP_REF: chore/google-signin-deps-2026-09
+
+    steps:
+      - name: Check cross-repo token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout target branch
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ env.APP_REF }}
+          token: ${{ secrets.GH_TOKEN }}
+          path: app
+          persist-credentials: true
+
+      - name: Configure private Git dependencies
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: git config --global url."https://x-access-token:${REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        id: pub
+        continue-on-error: true
+        working-directory: app
+        run: flutter pub get >/tmp/pub.log 2>&1
+
+      - name: Analyze
+        id: analyze
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        run: flutter analyze --no-fatal-infos >/tmp/analyze.log 2>&1
+
+      - name: Prepare Android SDK
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" "ndk;29.0.13599879" >/dev/null 2>&1 || true
+
+      - name: Build debug APK
+        id: build
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        run: flutter build apk --debug >/tmp/build.log 2>&1
+
+      - name: Commit sanitized verification result
+        if: always()
+        working-directory: app
+        env:
+          PUB_OUTCOME: ${{ steps.pub.outcome }}
+          ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci
+          APP_HEAD="$(git rev-parse HEAD)"
+          printf 'validator=%s\napp_head=%s\npub=%s\nanalyze=%s\nbuild=%s\n' \
+            "$GITHUB_SHA" "$APP_HEAD" "$PUB_OUTCOME" "$ANALYZE_OUTCOME" "$BUILD_OUTCOME" \
+            > .ci/google-signin-firebase-final.txt
+
+          if [ "$PUB_OUTCOME" = "failure" ]; then
+            printf '\n[pub-tail]\n' >> .ci/google-signin-firebase-final.txt
+            tail -n 35 /tmp/pub.log >> .ci/google-signin-firebase-final.txt
+          fi
+          if [ "$ANALYZE_OUTCOME" = "failure" ]; then
+            printf '\n[analyze-tail]\n' >> .ci/google-signin-firebase-final.txt
+            tail -n 45 /tmp/analyze.log >> .ci/google-signin-firebase-final.txt
+          fi
+          if [ "$BUILD_OUTCOME" = "failure" ]; then
+            printf '\n[build-tail]\n' >> .ci/google-signin-firebase-final.txt
+            tail -n 45 /tmp/build.log >> .ci/google-signin-firebase-final.txt
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .ci/google-signin-firebase-final.txt
+          if git status --porcelain -- pubspec.lock | grep -q .; then
+            git add pubspec.lock
+          fi
+          git commit -m "ci: record final Google login verification"
+          git push origin "HEAD:${APP_REF}"
+
+          test "$PUB_OUTCOME" = "success"
+          test "$ANALYZE_OUTCOME" = "success"
+          test "$BUILD_OUTCOME" = "success"
