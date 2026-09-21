@@ -1,0 +1,71 @@
+name: Verify Norwegian Drive patch baseline
+
+on:
+  push:
+    paths:
+      - .github/workflows/verify_norwegian_drive_patch.yml
+
+permissions:
+  contents: read
+
+jobs:
+  branch-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/norwegian_yoyillo
+          ref: fix/gdrive-silent-auto-sync-20260921
+          token: ${{ secrets.GH_TOKEN }}
+          path: app
+      - name: Configure private Git dependencies
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: git config --global url."https://x-access-token:${REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Prepare Android SDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" "ndk;29.0.14206865" >/dev/null 2>&1 || true
+      - working-directory: app
+        run: flutter pub get
+      - working-directory: app
+        run: flutter analyze --no-fatal-infos
+      - working-directory: app
+        run: flutter build apk --debug
+
+  baseline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          repository: Persie0/norwegian_yoyillo
+          ref: main
+          token: ${{ secrets.GH_TOKEN }}
+          path: app
+      - name: Configure private Git dependencies
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: git config --global url."https://x-access-token:${REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - working-directory: app
+        run: flutter pub get
+      - name: Run only the unrelated failing suites on base main
+        working-directory: app
+        run: flutter test test/providers/word_provider_test.dart test/utils/norwegian_gap_utils_test.dart
