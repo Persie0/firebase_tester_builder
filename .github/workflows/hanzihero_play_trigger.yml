@@ -1,0 +1,20 @@
+name: HanziHero Play release trigger
+
+on:
+  push:
+    paths:
+      - .github/workflows/hanzihero_play_trigger.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch existing Play Store automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run play_auto.yml             --repo Persie0/firebase_tester_builder             --ref main             -f app=hanzi_hero             -f build_apk=true             -f run_tests=true             -f branch=main
