@@ -412,6 +412,23 @@ jobs:
           unzip -oq app.apks -d extracted_apk
           mv extracted_apk/universal.apk app-release.apk
 
+      - name: Upload universal release APK artifact
+        if: inputs.build_apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-release-apk-${{ env.BUILD_NUMBER }}
+          path: app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Play Store AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-play-aab-${{ env.BUILD_NUMBER }}
+          path: build/app/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 14
+
       # Telegram upload disabled.
       # - name: Checkout Telegram uploader
       #   if: inputs.build_apk
