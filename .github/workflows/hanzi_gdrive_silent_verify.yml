@@ -108,3 +108,5 @@ jobs:
           test "$TEST_OUTCOME" = "success"
           test "$ANALYZE_OUTCOME" = "success"
           test "$BUILD_OUTCOME" = "success"
+
+# verification revision: 2
