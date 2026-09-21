@@ -1,0 +1,110 @@
+name: Hanzi Drive silent auth verification
+
+on:
+  push:
+    paths:
+      - .github/workflows/hanzi_gdrive_silent_verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Check cross-repo token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: test -n "$REPO_TOKEN"
+
+      - name: Checkout HanziHero branch
+        uses: actions/checkout@v5
+        with:
+          repository: Persie0/hanzi_hero
+          ref: fix/gdrive-silent-auto-sync-20260921
+          token: ${{ secrets.GH_TOKEN }}
+          path: app
+          persist-credentials: true
+
+      - name: Configure private Git dependencies
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: git config --global url."https://x-access-token:${REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Pub get
+        id: pub
+        continue-on-error: true
+        working-directory: app
+        run: flutter pub get >/tmp/pub.log 2>&1
+
+      - name: Targeted Drive tests
+        id: test
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        run: flutter test test/services/gdrive_progress_sync_service_test.dart >/tmp/test.log 2>&1
+
+      - name: Analyze
+        id: analyze
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        run: flutter analyze --no-fatal-infos >/tmp/analyze.log 2>&1
+
+      - name: Prepare Android SDK
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" "ndk;29.0.14206865" >/dev/null 2>&1 || true
+
+      - name: Build debug APK
+        id: build
+        if: steps.pub.outcome == 'success'
+        continue-on-error: true
+        working-directory: app
+        run: flutter build apk --debug >/tmp/build.log 2>&1
+
+      - name: Commit verification result
+        if: always()
+        working-directory: app
+        env:
+          PUB_OUTCOME: ${{ steps.pub.outcome }}
+          TEST_OUTCOME: ${{ steps.test.outcome }}
+          ANALYZE_OUTCOME: ${{ steps.analyze.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          set -euo pipefail
+          mkdir -p .ci
+          APP_HEAD="$(git rev-parse HEAD)"
+          printf 'validator=%s\napp_head=%s\npub=%s\ntest=%s\nanalyze=%s\nbuild=%s\n' \
+            "$GITHUB_SHA" "$APP_HEAD" "$PUB_OUTCOME" "$TEST_OUTCOME" "$ANALYZE_OUTCOME" "$BUILD_OUTCOME" \
+            > .ci/hanzi-gdrive-silent-verify.txt
+          for part in pub test analyze build; do
+            var="$(echo "$part" | tr '[:lower:]' '[:upper:]')_OUTCOME"
+            outcome="${!var:-skipped}"
+            if [ "$outcome" = "failure" ]; then
+              printf '\n[%s-tail]\n' "$part" >> .ci/hanzi-gdrive-silent-verify.txt
+              tail -n 60 "/tmp/${part}.log" >> .ci/hanzi-gdrive-silent-verify.txt || true
+            fi
+          done
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .ci/hanzi-gdrive-silent-verify.txt pubspec.lock
+          git commit -m "ci: verify silent Drive startup auth"
+          git push origin HEAD:fix/gdrive-silent-auto-sync-20260921
+
+          test "$PUB_OUTCOME" = "success"
+          test "$TEST_OUTCOME" = "success"
+          test "$ANALYZE_OUTCOME" = "success"
+          test "$BUILD_OUTCOME" = "success"
