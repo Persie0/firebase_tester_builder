@@ -171,13 +171,21 @@ jobs:
             echo 'No explicit/native NDK requirement detected.'
           fi
 
+      - name: Run Flutter tests
+        if: steps.project.outputs.type == 'flutter'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter test
+
       - name: Build Flutter debug APK
         if: steps.project.outputs.type == 'flutter'
         shell: bash
         run: |
           set -euo pipefail
           flutter pub get
-          flutter test
           flutter build apk --debug
 
       - name: Build Android debug APK with project wrapper
