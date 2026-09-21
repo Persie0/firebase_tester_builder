@@ -1,0 +1,36 @@
+name: HanziHero Firebase Robo retest
+
+on:
+  push:
+    paths:
+      - .github/workflows/hanzihero_robo_retest.yml
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  robo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Download release APK artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: hanzi_hero-release-apk-208359214
+          path: apk
+          github-token: ${{ github.token }}
+          repository: Persie0/firebase_tester_builder
+          run-id: 35548452797
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run Firebase Robo test
+        run: |
+          gcloud firebase test android run             --app=apk/app-release.apk             --type=robo             --device=model=MediumPhone.arm,version=34             --timeout=300s             --no-auto-google-login
