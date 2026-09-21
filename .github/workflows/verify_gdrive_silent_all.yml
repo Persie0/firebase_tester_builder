@@ -1,0 +1,83 @@
+name: Verify invisible Drive startup auth
+
+on:
+  push:
+    paths:
+      - .github/workflows/verify_gdrive_silent_all.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - slug: memory_palace
+            repo: Persie0/Memory_Palace_Builder
+            ref: chore/google-signin-deps-2026-09
+            ndk: 29.0.14206865
+          - slug: figura
+            repo: Persie0/mwst_buchhalter
+            ref: chore/google-signin-deps-2026-09
+            ndk: 29.0.13599879
+          - slug: vitamind
+            repo: Persie0/vitamindtracker
+            ref: chore/google-signin-deps-2026-09
+            ndk: 29.0.13599879
+          - slug: norwegian
+            repo: Persie0/norwegian_yoyillo
+            ref: fix/gdrive-silent-auto-sync-20260921
+            ndk: 29.0.14206865
+
+    steps:
+      - name: Checkout app
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ matrix.repo }}
+          ref: ${{ matrix.ref }}
+          token: ${{ secrets.GH_TOKEN }}
+          path: app
+
+      - name: Configure private Git dependencies
+        env:
+          REPO_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: git config --global url."https://x-access-token:${REPO_TOKEN}@github.com/".insteadOf "https://github.com/"
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare Android SDK
+        run: |
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="${ANDROID_SDK_ROOT}/cmdline-tools/latest/bin/sdkmanager"
+          fi
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKMANAGER" "ndk;${{ matrix.ndk }}" >/dev/null 2>&1 || true
+
+      - name: Flutter pub get
+        working-directory: app
+        run: flutter pub get
+
+      - name: Flutter analyze
+        working-directory: app
+        run: flutter analyze --no-fatal-infos
+
+      - name: Flutter tests
+        working-directory: app
+        run: flutter test
+
+      - name: Build debug APK
+        working-directory: app
+        run: flutter build apk --debug
