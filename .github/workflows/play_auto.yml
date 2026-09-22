@@ -312,6 +312,7 @@ jobs:
           flutter build appbundle \
             --obfuscate \
             --split-debug-info=./build \
+            --extra-gen-snapshot-options=--strip \
             --build-name="$BUILD_NAME" \
             --build-number="$BUILD_NUMBER"
 
