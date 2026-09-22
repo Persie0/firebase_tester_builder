@@ -127,6 +127,16 @@ jobs:
         with:
           channel: stable
 
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle', 'android/**/*.gradle.kts', 'android/gradle.properties', 'pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
       - name: Get package name
         shell: bash
         run: |
@@ -308,13 +318,52 @@ jobs:
       - name: Build app bundle
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms6g -Xmx13g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dandroid.r8.jvmargs='-Xmx6g'"
+        shell: bash
         run: |
-          flutter build appbundle \
-            --obfuscate \
-            --split-debug-info=./build \
-            --extra-gen-snapshot-options=--strip \
-            --build-name="$BUILD_NAME" \
-            --build-number="$BUILD_NUMBER"
+          set -uo pipefail
+
+          max_attempts=4
+          attempt=1
+          while true; do
+            log_file="$(mktemp)"
+            echo "Gradle/Flutter release build attempt $attempt/$max_attempts"
+
+            set +e
+            flutter build appbundle \
+              --obfuscate \
+              --split-debug-info=./build \
+              --extra-gen-snapshot-options=--strip \
+              --build-name="$BUILD_NAME" \
+              --build-number="$BUILD_NUMBER" 2>&1 | tee "$log_file"
+            status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$status" -eq 0 ]; then
+              rm -f "$log_file"
+              break
+            fi
+
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              rm -f "$log_file"
+              exit "$status"
+            fi
+
+            if ! grep -Eqi 'HTTP 429|Too Many Requests|Could not (GET|HEAD)|timed out|timeout|Connection reset|Temporary failure|Network is unreachable|error while downloading artifacts from the network' "$log_file"; then
+              echo "::error::Build failed for a non-transient reason; not retrying."
+              rm -f "$log_file"
+              exit "$status"
+            fi
+
+            case "$attempt" in
+              1) delay=15 ;;
+              2) delay=45 ;;
+              *) delay=90 ;;
+            esac
+            echo "::warning::Transient dependency download failure detected. Retrying in ${delay}s."
+            rm -f "$log_file"
+            sleep "$delay"
+            attempt=$((attempt + 1))
+          done
 
       - name: Sentry / GlitchTip upload
         continue-on-error: true
