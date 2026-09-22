@@ -364,6 +364,16 @@ jobs:
             attempt=$((attempt + 1))
           done
 
+      - name: Verify R8 release metrics
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f .github/scripts/verify_r8_metrics.py ]; then
+            python3 .github/scripts/verify_r8_metrics.py
+          else
+            echo 'No app-specific R8 verifier found; skipping.'
+          fi
+
       - name: Sentry / GlitchTip upload
         continue-on-error: true
         env:
