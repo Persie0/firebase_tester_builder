@@ -61,6 +61,16 @@ jobs:
           token: ${{ secrets.GH_TOKEN }}
           ref: ${{ inputs.branch }}
 
+      - name: Checkout release policy
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/firebase_tester_builder'
+          ref: bd526e0abc13b330e0bff5b8bde2b82ce48b67d2
+          path: .firebase_builder
+          sparse-checkout: |
+            .github/scripts/verify_r8_min_scores.py
+          sparse-checkout-cone-mode: false
+
       - name: Checkout EULA repository
         uses: actions/checkout@v4
         with:
@@ -388,14 +398,21 @@ jobs:
             attempt=$((attempt + 1))
           done
 
-      - name: Verify R8 release metrics
+      - name: Enforce global R8 25% gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py \
+            build/app/outputs/bundle/release/app-release.aab
+
+      - name: Run app-specific R8 verifier
         shell: bash
         run: |
           set -euo pipefail
           if [ -f .github/scripts/verify_r8_metrics.py ]; then
             python3 .github/scripts/verify_r8_metrics.py
           else
-            echo 'No app-specific R8 verifier found; skipping.'
+            echo 'No app-specific R8 verifier found; global 25% gate already passed.'
           fi
 
       - name: Sentry / GlitchTip upload
