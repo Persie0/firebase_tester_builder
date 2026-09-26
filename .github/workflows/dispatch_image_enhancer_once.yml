@@ -1,0 +1,27 @@
+name: Dispatch image_enhancer release once
+
+on:
+  push:
+    paths:
+      - '.github/workflows/dispatch_image_enhancer_once.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Play Store Automation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run play_auto.yml \
+            --repo Persie0/firebase_tester_builder \
+            --ref main \
+            -f app=image_enhancer \
+            -f build_apk=true \
+            -f run_tests=false \
+            -f branch=main
