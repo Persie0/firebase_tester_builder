@@ -1,5 +1,6 @@
 name: Dispatch image_enhancer release once
 
+# Re-dispatch after R8 policy-scope fix.
 on:
   push:
     paths:
