@@ -1,0 +1,25 @@
+name: Live Noise Cancelling release trigger
+
+on:
+  push:
+    paths:
+      - .github/workflows/live_noise_cancelling_release_trigger.yml
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Live Noise Cancelling through Play pipeline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh workflow run play_auto.yml \
+            --repo Persie0/firebase_tester_builder \
+            --ref main \
+            -f app=live_noise_cancelling \
+            -f build_apk=false \
+            -f run_tests=false
