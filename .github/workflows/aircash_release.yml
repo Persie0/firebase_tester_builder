@@ -1,0 +1,180 @@
+name: Aircash Debug Release
+run-name: Aircash APK · ${{ github.event_name == 'workflow_dispatch' && inputs.branch || 'trigger' }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch/tag/SHA in Persie0/mc_aircash_decompiled to build'
+        required: false
+        default: 'main'
+        type: string
+  push:
+    paths:
+      - 'aircash_triggers/*.txt'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aircash-debug-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Validate repository token
+        env:
+          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$REPO_TOKEN" ]; then
+            echo '::error::GH_RELEASE_TOKEN (preferred) or GH_TOKEN is required. It needs read access to Persie0/mc_aircash_decompiled and Contents: read/write to publish Releases.'
+            exit 1
+          fi
+
+      - name: Resolve Aircash ref
+        id: target
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCH_REF: ${{ inputs.branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = 'workflow_dispatch' ]; then
+            REF="${DISPATCH_REF:-main}"
+          else
+            TRIGGER_FILE="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" --jq '.files[].filename' | grep -E '^aircash_triggers/[^/]+\.txt$' | head -n1 || true)"
+            if [ -z "$TRIGGER_FILE" ]; then
+              echo '::error::No aircash_triggers/*.txt file was changed.'
+              exit 1
+            fi
+            CONTENT="$(gh api "repos/${GITHUB_REPOSITORY}/contents/${TRIGGER_FILE}?ref=${GITHUB_SHA}" --jq .content | base64 --decode)"
+            REF="$(printf '%s\n' "$CONTENT" | sed -n 's/^branch=//p' | head -n1)"
+            if [ -z "$REF" ]; then
+              REF="$(printf '%s\n' "$CONTENT" | sed -n 's/^ref=//p' | head -n1)"
+            fi
+            REF="${REF:-main}"
+          fi
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "Building Persie0/mc_aircash_decompiled@$REF"
+
+      - name: Checkout Aircash repository
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/mc_aircash_decompiled
+          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          ref: ${{ steps.target.outputs.ref }}
+          fetch-depth: 0
+          path: aircash-src
+
+      - name: Resolve target metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd aircash-src
+          TARGET_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "TARGET_REPO=Persie0/mc_aircash_decompiled" >> "$GITHUB_ENV"
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: aircash-src/AbonAuto/**/*.gradle*
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install Android SDK 36
+        shell: bash
+        run: |
+          set -euo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
+          printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > aircash-src/AbonAuto/local.properties
+
+      - name: Test and build Aircash APK
+        working-directory: aircash-src/AbonAuto
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:assembleDebug --stacktrace
+
+      - name: Select APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK='aircash-src/AbonAuto/app/build/outputs/apk/debug/app-debug.apk'
+          if [ ! -f "$APK" ]; then
+            APK="$(find aircash-src/AbonAuto -type f -path '*/build/outputs/apk/debug/*.apk' ! -name '*androidTest*' -printf '%s %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+          fi
+          if [ -z "${APK:-}" ] || [ ! -f "$APK" ]; then
+            echo '::error::Build completed but no debug APK was found.'
+            find aircash-src/AbonAuto -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          mkdir -p release-out
+          OUT="release-out/Aircash-${SHORT_SHA}-debug.apk"
+          cp "$APK" "$OUT"
+          echo "APK_PATH=$OUT" >> "$GITHUB_ENV"
+          ls -lh "$OUT"
+
+      - name: Upload workflow artifact
+        id: artifact_upload
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: Aircash-debug-${{ env.SHORT_SHA }}
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish APK to Aircash Releases
+        env:
+          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="debug-${SHORT_SHA}"
+          TITLE="Aircash debug ${SHORT_SHA}"
+          NOTES="Automated debug APK for ${TARGET_REPO}@${TARGET_SHA}. Built and tested by Persie0/firebase_tester_builder."
+
+          gh api "repos/${TARGET_REPO}" >/dev/null
+
+          if gh release view "$TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "$TARGET_REPO" --clobber
+          else
+            gh release create "$TAG" "$APK_PATH" \
+              --repo "$TARGET_REPO" \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              --prerelease
+          fi
+
+          RELEASE_URL="$(gh release view "$TAG" --repo "$TARGET_REPO" --json url --jq .url)"
+          echo "### Aircash APK published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $TARGET_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: $RELEASE_URL"
