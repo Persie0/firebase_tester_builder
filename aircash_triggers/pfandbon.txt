@@ -1,1 +1,1 @@
-branch=feature/pfandbon-scanner
+branch=main
