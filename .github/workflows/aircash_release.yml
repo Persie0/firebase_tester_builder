@@ -27,12 +27,12 @@ jobs:
     steps:
       - name: Validate repository token
         env:
-          REPO_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          REPO_TOKEN: ${{ secrets.AIRCASH_RELEASE_TOKEN || secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
           if [ -z "$REPO_TOKEN" ]; then
-            echo '::error::GH_RELEASE_TOKEN (preferred) or GH_TOKEN is required. It needs read access to Persie0/mc_aircash_decompiled and Contents: read/write to publish Releases.'
+            echo '::error::AIRCASH_RELEASE_TOKEN (preferred), GH_RELEASE_TOKEN, or GH_TOKEN is required. The token needs read access to Persie0/mc_aircash_decompiled and Contents: read/write to publish Releases.'
             exit 1
           fi
 
@@ -66,7 +66,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/mc_aircash_decompiled
-          token: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          token: ${{ secrets.AIRCASH_RELEASE_TOKEN || secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
           ref: ${{ steps.target.outputs.ref }}
           fetch-depth: 0
           path: aircash-src
@@ -109,7 +109,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          yes | sdkmanager --licenses >/dev/null || true
           sdkmanager 'platforms;android-36' 'build-tools;36.0.0' >/dev/null
           printf 'sdk.dir=%s\n' "$ANDROID_SDK_ROOT" > aircash-src/AbonAuto/local.properties
 
@@ -152,7 +151,7 @@ jobs:
 
       - name: Publish APK to Aircash Releases
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ secrets.AIRCASH_RELEASE_TOKEN || secrets.GH_RELEASE_TOKEN || secrets.GH_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -165,12 +164,15 @@ jobs:
           if gh release view "$TAG" --repo "$TARGET_REPO" >/dev/null 2>&1; then
             gh release upload "$TAG" "$APK_PATH" --repo "$TARGET_REPO" --clobber
           else
-            gh release create "$TAG" "$APK_PATH" \
+            if ! gh release create "$TAG" "$APK_PATH" \
               --repo "$TARGET_REPO" \
               --target "$TARGET_SHA" \
               --title "$TITLE" \
               --notes "$NOTES" \
-              --prerelease
+              --prerelease; then
+              echo '::error::Release publishing failed. Use a fine-grained token with access to Persie0/mc_aircash_decompiled and Repository permissions > Contents: Read and write, stored as AIRCASH_RELEASE_TOKEN.'
+              exit 1
+            fi
           fi
 
           RELEASE_URL="$(gh release view "$TAG" --repo "$TARGET_REPO" --json url --jq .url)"
