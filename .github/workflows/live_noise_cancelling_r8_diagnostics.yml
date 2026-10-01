@@ -93,7 +93,7 @@ jobs:
           flutter build appbundle \
             --obfuscate \
             --split-debug-info=./build \
-            --build-name=20261001-r8diag2 \
+            --build-name=20261001-r8diag3 \
             --build-number=26
 
       - name: Collect R8 diagnostics
@@ -132,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-noise-cancelling-r8-diagnostics-sentry-opt
+          name: live-noise-cancelling-r8-diagnostics-sentry-opt2
           path: r8-diagnostics
           if-no-files-found: warn
           retention-days: 3
