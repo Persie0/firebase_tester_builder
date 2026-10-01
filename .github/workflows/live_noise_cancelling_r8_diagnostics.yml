@@ -93,7 +93,7 @@ jobs:
           flutter build appbundle \
             --obfuscate \
             --split-debug-info=./build \
-            --build-name=20261001-r8diag \
+            --build-name=20261001-r8diag2 \
             --build-number=26
 
       - name: Collect R8 diagnostics
@@ -102,6 +102,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p r8-diagnostics
+          if [ -f pubspec.lock ]; then
+            cp pubspec.lock r8-diagnostics/pubspec.lock
+          fi
           if [ -f build/app/outputs/bundle/release/app-release.aab ]; then
             python3 - <<'PY'
           import json, zipfile
@@ -129,7 +132,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: live-noise-cancelling-r8-diagnostics-sentry
+          name: live-noise-cancelling-r8-diagnostics-sentry-opt
           path: r8-diagnostics
           if-no-files-found: warn
           retention-days: 3
