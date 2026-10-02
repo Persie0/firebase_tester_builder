@@ -9,10 +9,9 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
-  configure-and-release:
+  stage-release-workflows:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release builder
@@ -20,7 +19,7 @@ jobs:
         with:
           token: ${{ github.token }}
 
-      - name: Add Norwegian YoYillo to release selectors
+      - name: Add Norwegian YoYillo to staged release selectors
         shell: bash
         run: |
           set -euo pipefail
@@ -29,30 +28,36 @@ jobs:
 
           app = 'norwegian_yoyillo'
           entry = f'          - {app}\n'
-          paths = [
+          sources = [
               Path('.github/workflows/play_auto.yml'),
               Path('.github/workflows/app_store_auto.yml'),
           ]
+          stage_dir = Path('staged_release_workflows/norwegian_yoyillo')
+          stage_dir.mkdir(parents=True, exist_ok=True)
 
-          for path in paths:
-              text = path.read_text(encoding='utf-8')
-              if entry in text:
-                  print(f'{path}: already contains {app}')
-                  continue
+          for source in sources:
+              text = source.read_text(encoding='utf-8')
+              if entry not in text:
+                  anchor = '        default: noise_remover\n'
+                  if text.count(anchor) != 1:
+                      raise SystemExit(
+                          f'{source}: expected exactly one app-selector default anchor, '
+                          f'found {text.count(anchor)}'
+                      )
+                  text = text.replace(anchor, entry + anchor, 1)
 
-              anchor = '        default: noise_remover\n'
-              if text.count(anchor) != 1:
+              if text.count(entry) != 1:
                   raise SystemExit(
-                      f'{path}: expected exactly one app-selector default anchor, '
-                      f'found {text.count(anchor)}'
+                      f'{source}: expected norwegian_yoyillo exactly once after edit, '
+                      f'got {text.count(entry)}'
                   )
 
-              text = text.replace(anchor, entry + anchor, 1)
-              path.write_text(text, encoding='utf-8')
-              print(f'{path}: added {app}')
+              target = stage_dir / source.name
+              target.write_text(text, encoding='utf-8')
+              print(f'Staged {target}')
           PY
 
-      - name: Verify selector wiring
+      - name: Verify staged workflow files
         shell: bash
         run: |
           set -euo pipefail
@@ -61,8 +66,8 @@ jobs:
 
           entry = '          - norwegian_yoyillo\n'
           for path in [
-              Path('.github/workflows/play_auto.yml'),
-              Path('.github/workflows/app_store_auto.yml'),
+              Path('staged_release_workflows/norwegian_yoyillo/play_auto.yml'),
+              Path('staged_release_workflows/norwegian_yoyillo/app_store_auto.yml'),
           ]:
               text = path.read_text(encoding='utf-8')
               count = text.count(entry)
@@ -70,33 +75,18 @@ jobs:
                   raise SystemExit(f'{path}: expected norwegian_yoyillo exactly once, got {count}')
               print(f'{path}: norwegian_yoyillo present exactly once')
           PY
-          git diff --check
+          git diff --check -- staged_release_workflows/norwegian_yoyillo
 
-      - name: Commit release selector update
+      - name: Commit staged workflow files
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet; then
-            echo 'Release selectors already configured; no commit needed.'
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add staged_release_workflows/norwegian_yoyillo
+          if git diff --cached --quiet; then
+            echo 'Staged workflow copies already current.'
           else
-            git config user.name 'github-actions[bot]'
-            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-            git add .github/workflows/play_auto.yml .github/workflows/app_store_auto.yml
-            git commit -m 'ci: add Norwegian YoYillo to release builders'
+            git commit -m 'ci: stage Norwegian YoYillo release workflows'
             git push origin HEAD:main
           fi
-
-      - name: Dispatch Android Play release
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh workflow run play_auto.yml \
-            --repo Persie0/firebase_tester_builder \
-            --ref main \
-            -f app=norwegian_yoyillo \
-            -f build_apk=false \
-            -f run_tests=false \
-            -f branch=main
-          echo 'Dispatched play_auto.yml for norwegian_yoyillo@main.'
