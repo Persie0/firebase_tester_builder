@@ -25,6 +25,7 @@ on:
           - toiletcompass
           - equilibrium
           - image_compressor
+          - norwegian_yoyillo
         default: noise_remover
       upload_to_testflight:
         description: 'Upload the signed IPA to TestFlight'
