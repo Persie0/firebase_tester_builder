@@ -1,0 +1,103 @@
+name: Norwegian YoYillo release setup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/norwegian_yoyillo_release_setup.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  configure-and-release:
+    if: github.event.head_commit.message == 'ci: add Norwegian YoYillo release setup'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release builder
+        uses: actions/checkout@v4
+        with:
+          token: ${{ github.token }}
+
+      - name: Add Norwegian YoYillo to release selectors
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          app = 'norwegian_yoyillo'
+          entry = f'          - {app}\n'
+          paths = [
+              Path('.github/workflows/play_auto.yml'),
+              Path('.github/workflows/app_store_auto.yml'),
+          ]
+
+          for path in paths:
+              text = path.read_text(encoding='utf-8')
+              if entry in text:
+                  print(f'{path}: already contains {app}')
+                  continue
+
+              anchor = '        default: noise_remover\n'
+              if text.count(anchor) != 1:
+                  raise SystemExit(
+                      f'{path}: expected exactly one app-selector default anchor, '
+                      f'found {text.count(anchor)}'
+                  )
+
+              text = text.replace(anchor, entry + anchor, 1)
+              path.write_text(text, encoding='utf-8')
+              print(f'{path}: added {app}')
+          PY
+
+      - name: Verify selector wiring
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          entry = '          - norwegian_yoyillo\n'
+          for path in [
+              Path('.github/workflows/play_auto.yml'),
+              Path('.github/workflows/app_store_auto.yml'),
+          ]:
+              text = path.read_text(encoding='utf-8')
+              count = text.count(entry)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected norwegian_yoyillo exactly once, got {count}')
+              print(f'{path}: norwegian_yoyillo present exactly once')
+          PY
+          git diff --check
+
+      - name: Commit release selector update
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo 'Release selectors already configured; no commit needed.'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .github/workflows/play_auto.yml .github/workflows/app_store_auto.yml
+            git commit -m 'ci: add Norwegian YoYillo to release builders'
+            git push origin HEAD:main
+          fi
+
+      - name: Dispatch Android Play release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh workflow run play_auto.yml \
+            --repo Persie0/firebase_tester_builder \
+            --ref main \
+            -f app=norwegian_yoyillo \
+            -f build_apk=false \
+            -f run_tests=false \
+            -f branch=main
+          echo 'Dispatched play_auto.yml for norwegian_yoyillo@main.'
