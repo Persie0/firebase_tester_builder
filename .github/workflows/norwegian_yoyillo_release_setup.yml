@@ -13,7 +13,6 @@ permissions:
 
 jobs:
   configure-and-release:
-    if: github.event.head_commit.message == 'ci: add Norwegian YoYillo release setup'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout release builder
