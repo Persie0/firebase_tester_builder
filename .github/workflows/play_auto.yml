@@ -31,6 +31,7 @@ on:
           - secret_audio_message
           - screendetector
           - norwegian_yoyillo
+          - Audiobooster
         default: noise_remover
       build_apk:
         description: 'Build Universal APK (Telegram upload disabled)'
