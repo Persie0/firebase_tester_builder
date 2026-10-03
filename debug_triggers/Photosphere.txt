@@ -1,0 +1,4 @@
+app=Photosphere
+owner=Persie0
+requested_sha=4cb478cf590e10332b2ca85c5b7a0a2a54e75f08
+attempt=2
