@@ -150,6 +150,27 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Prepare generated Flutter platforms
+        if: steps.project.outputs.type == 'flutter'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; then
+            PROJECT_NAME="$(sed -n 's/^name:[[:space:]]*//p' pubspec.yaml | head -n1 | tr '-' '_')"
+            flutter create --platforms=android,ios --project-name="$PROJECT_NAME" --no-pub .
+            if [ -f tool/configure_platforms.dart ]; then
+              dart tool/configure_platforms.dart
+            fi
+            if [ -f tool/set_android_sdk37.dart ]; then
+              dart tool/set_android_sdk37.dart
+            elif [ -f tool/configure_android_sdk.sh ]; then
+              bash tool/configure_android_sdk.sh
+            fi
+            if ! git ls-files --error-unmatch test/widget_test.dart >/dev/null 2>&1; then
+              rm -f test/widget_test.dart
+            fi
+          fi
+
       - name: Setup standalone Gradle
         if: startsWith(steps.project.outputs.type, 'gradle-system-')
         uses: gradle/actions/setup-gradle@v4
