@@ -154,7 +154,7 @@ jobs:
         if: startsWith(steps.project.outputs.type, 'gradle-system-')
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '9.5.0'
+          gradle-version: '9.6.0'
 
       - name: Install requested NDK
         shell: bash
