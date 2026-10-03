@@ -157,7 +157,14 @@ jobs:
           set -euo pipefail
           if [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; then
             PROJECT_NAME="$(sed -n 's/^name:[[:space:]]*//p' pubspec.yaml | head -n1 | tr '-' '_')"
-            flutter create --platforms=android,ios --project-name="$PROJECT_NAME" --no-pub .
+            ORG_ARGS=()
+            if [ -f tool/bootstrap.sh ]; then
+              PROJECT_ORG="$(sed -nE 's/.*flutter create .*--org[[:space:]]+([^[:space:]]+).*/\1/p' tool/bootstrap.sh | head -n1)"
+              if [ -n "$PROJECT_ORG" ]; then
+                ORG_ARGS=(--org "$PROJECT_ORG")
+              fi
+            fi
+            flutter create --platforms=android,ios --project-name="$PROJECT_NAME" "${ORG_ARGS[@]}" --no-pub .
             if [ -f tool/configure_platforms.dart ]; then
               dart tool/configure_platforms.dart
             fi
