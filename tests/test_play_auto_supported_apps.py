@@ -14,6 +14,9 @@ class PlayAutoSupportedAppsTest(unittest.TestCase):
     def test_audiobooster_is_selectable(self):
         self.assertIn("          - Audiobooster\n", self.text)
 
+    def test_imagepdfscaler_is_selectable(self):
+        self.assertIn("          - ImagePdfScaler\n", self.text)
+
     def test_selected_app_uses_generic_repository_checkout(self):
         self.assertIn("repository: 'Persie0/${{ inputs.app }}'", self.text)
 
