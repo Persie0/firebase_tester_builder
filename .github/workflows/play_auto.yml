@@ -32,6 +32,7 @@ on:
           - screendetector
           - norwegian_yoyillo
           - Audiobooster
+          - ImagePdfScaler
         default: noise_remover
       build_apk:
         description: 'Build Universal APK (Telegram upload disabled)'
@@ -217,7 +218,6 @@ jobs:
 
       - name: Flutter analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
-
       - name: Flutter test
         shell: bash
         run: |
