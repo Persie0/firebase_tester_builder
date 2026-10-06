@@ -1,0 +1,37 @@
+name: Retry image_enhancer Play internal sharing
+
+on:
+  push:
+    paths:
+      - '.github/workflows/retry_image_enhancer_internalsharing.yml'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download AAB from failed release run
+        uses: actions/download-artifact@v4
+        with:
+          name: image_enhancer-play-aab-65
+          path: artifact
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          repository: Persie0/firebase_tester_builder
+          run-id: '37482643514'
+
+      - name: Verify AAB
+        run: |
+          set -euo pipefail
+          test -f artifact/app-release.aab
+          ls -lh artifact/app-release.aab
+
+      - name: Upload to Google Play internal app sharing
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          packageName: at.persie0.image_enhancer
+          releaseFiles: artifact/app-release.aab
+          tracks: internalsharing
