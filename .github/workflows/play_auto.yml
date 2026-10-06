@@ -48,6 +48,14 @@ on:
         description: 'Branch to checkout (leave empty for default)'
         required: false
         default: ''
+      play_track:
+        description: 'Google Play delivery target'
+        required: false
+        type: choice
+        options:
+          - internal
+          - internalsharing
+        default: internal
 
 concurrency:
   group: android-release-${{ inputs.app }}
@@ -564,7 +572,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
           packageName: ${{ env.PACKAGE_NAME }}
           releaseFiles: build/app/outputs/bundle/release/app-release.aab
-          tracks: internal
+          tracks: ${{ inputs.play_track }}
 
       - name: Authenticate to Google Cloud
         if: inputs.run_tests
