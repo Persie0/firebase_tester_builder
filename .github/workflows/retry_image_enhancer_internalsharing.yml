@@ -1,9 +1,6 @@
 name: Retry image_enhancer Play internal sharing
 
 on:
-  push:
-    paths:
-      - '.github/workflows/retry_image_enhancer_internalsharing.yml'
   workflow_run:
     workflows:
       - 'Play Store Automation'
@@ -12,31 +9,54 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
 
 jobs:
   upload:
+    if: github.event.workflow_run.id == 37482643514
     runs-on: ubuntu-latest
     steps:
-      - name: Download AAB from failed release run
+      - name: Checkout helper repository
+        uses: actions/checkout@v4
+
+      - name: Download AAB artifacts from requested release run
         uses: actions/download-artifact@v4
         with:
-          name: image_enhancer-play-aab-65
-          path: artifact
+          pattern: image_enhancer-play-aab-*
+          path: artifacts
           github-token: ${{ secrets.GITHUB_TOKEN }}
           repository: Persie0/firebase_tester_builder
           run-id: '37482643514'
 
-      - name: Verify AAB
+      - name: Select newest AAB
+        shell: bash
         run: |
           set -euo pipefail
-          test -f artifact/app-release.aab
-          ls -lh artifact/app-release.aab
+          latest_dir="$(find artifacts -mindepth 1 -maxdepth 1 -type d -name 'image_enhancer-play-aab-*' | sort -V | tail -n 1)"
+          if [ -z "$latest_dir" ] || [ ! -f "$latest_dir/app-release.aab" ]; then
+            echo '::error::No image_enhancer Play AAB artifact found.'
+            exit 1
+          fi
+          mkdir -p upload
+          cp "$latest_dir/app-release.aab" upload/app-release.aab
+          echo "Using artifact directory: $latest_dir"
+          ls -lh upload/app-release.aab
 
       - name: Upload to Google Play internal app sharing
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
           packageName: at.persie0.image_enhancer
-          releaseFiles: artifact/app-release.aab
+          releaseFiles: upload/app-release.aab
           tracks: internalsharing
+
+      - name: Remove one-shot recovery workflow
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/retry_image_enhancer_internalsharing.yml
+          git commit -m 'chore: remove image_enhancer one-shot recovery workflow'
+          git push
