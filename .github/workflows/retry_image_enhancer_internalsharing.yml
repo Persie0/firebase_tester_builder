@@ -4,6 +4,11 @@ on:
   push:
     paths:
       - '.github/workflows/retry_image_enhancer_internalsharing.yml'
+  workflow_run:
+    workflows:
+      - 'Play Store Automation'
+    types:
+      - completed
 
 permissions:
   actions: read
