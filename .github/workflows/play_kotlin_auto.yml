@@ -11,6 +11,7 @@ on:
         options:
           - Audiobooster
           - root_detection_app
+          - fake_gps_detector
         default: Audiobooster
       build_apk:
         description: 'Build Universal APK'
