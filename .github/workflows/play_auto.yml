@@ -31,7 +31,6 @@ on:
           - secret_audio_message
           - screendetector
           - norwegian_yoyillo
-          - Audiobooster
           - ImagePdfScaler
         default: noise_remover
       build_apk:
