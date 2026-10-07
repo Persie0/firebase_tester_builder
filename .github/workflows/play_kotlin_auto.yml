@@ -10,6 +10,7 @@ on:
         type: choice
         options:
           - Audiobooster
+          - root_detection_app
         default: Audiobooster
       build_apk:
         description: 'Build Universal APK'
@@ -183,6 +184,8 @@ jobs:
             PROPERTIES_FILE="$PROJECT_ROOT/key.properties"
           elif [ -f key.properties ]; then
             PROPERTIES_FILE=key.properties
+          elif [ -f "$PROJECT_ROOT/old/android/key.properties" ]; then
+            PROPERTIES_FILE="$PROJECT_ROOT/old/android/key.properties"
           fi
 
           if [ -n "$PROPERTIES_FILE" ]; then
@@ -204,6 +207,9 @@ jobs:
           echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
 
           KEYSTORE_PATH="$(find "$PROJECT_ROOT/app" -maxdepth 2 -type f \( -name '*.jks' -o -name '*.keystore' \) -print -quit 2>/dev/null || true)"
+          if [ -z "$KEYSTORE_PATH" ] && [ -f "$PROJECT_ROOT/old/android/app/key.jks" ]; then
+            KEYSTORE_PATH="$PROJECT_ROOT/old/android/app/key.jks"
+          fi
           if [ -z "$KEYSTORE_PATH" ]; then
             KEYSTORE_PATH="$(find "$PROJECT_ROOT" -path '*/old/*' -prune -o -type f \( -name '*.jks' -o -name '*.keystore' \) -print | head -n1 || true)"
           fi
