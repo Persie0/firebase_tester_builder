@@ -159,7 +159,10 @@ jobs:
           if [ -n "${COMPILE_SDK:-}" ]; then
             if ! sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null; then
               echo "::warning::Android API $COMPILE_SDK is not on the stable SDK channel; retrying preview channels."
-              sdkmanager --channel=3 "platforms;android-$COMPILE_SDK" >/dev/null
+              if ! sdkmanager --channel=3 "platforms;android-$COMPILE_SDK" >/dev/null; then
+                echo "::warning::API $COMPILE_SDK unavailable in SDK manager; install API 36 and let AGP resolve compileSdk."
+                sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+              fi
             fi
           fi
 
