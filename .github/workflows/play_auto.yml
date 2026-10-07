@@ -1,4 +1,4 @@
-name: Play Store Automation
+name: Flutter Play Store Automation
 run-name: Deploy ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
@@ -14,10 +14,8 @@ on:
           - image_enhancer
           - face_scanner
           - resistor_scanner
-          - root_detection_app
           - surebets_calculator
           - resistor-calc
-          - fake_gps_detector
           - hanzi_hero
           - Memory_Palace_Builder
           - recorder_noise_remove
@@ -31,7 +29,6 @@ on:
           - secret_audio_message
           - screendetector
           - norwegian_yoyillo
-          - Audiobooster
           - ImagePdfScaler
         default: noise_remover
       build_apk:

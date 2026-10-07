@@ -11,8 +11,8 @@ class PlayAutoSupportedAppsTest(unittest.TestCase):
     def setUpClass(cls):
         cls.text = WORKFLOW.read_text(encoding="utf-8")
 
-    def test_audiobooster_is_selectable(self):
-        self.assertIn("          - Audiobooster\n", self.text)
+    def test_audiobooster_is_not_selectable(self):
+        self.assertNotIn("          - Audiobooster\n", self.text)
 
     def test_imagepdfscaler_is_selectable(self):
         self.assertIn("          - ImagePdfScaler\n", self.text)

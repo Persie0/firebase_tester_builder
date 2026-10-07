@@ -17,7 +17,6 @@ on:
           - root_detection_app
           - surebets_calculator
           - resistor-calc
-          - fake_gps_detector
           - hanzi_hero
           - Memory_Palace_Builder
           - recorder_noise_remove

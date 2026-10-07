@@ -1,0 +1,551 @@
+name: Kotlin Play Store Automation
+run-name: Deploy Kotlin ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 'Choose which native Kotlin Android app to build and deploy'
+        required: true
+        type: choice
+        options:
+          - Audiobooster
+          - root_detection_app
+          - fake_gps_detector
+        default: Audiobooster
+      build_apk:
+        description: 'Build Universal APK'
+        required: false
+        type: boolean
+        default: false
+      run_tests:
+        description: 'Run Robo tests on Firebase Test Lab'
+        required: false
+        type: boolean
+        default: false
+      branch:
+        description: 'Branch to checkout (leave empty for default)'
+        required: false
+        default: ''
+      play_track:
+        description: 'Google Play delivery target'
+        required: false
+        type: choice
+        options:
+          - internal
+          - internalsharing
+        default: internal
+
+concurrency:
+  group: android-kotlin-release-${{ inputs.app }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout selected app
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/${{ inputs.app }}'
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          ref: ${{ inputs.branch }}
+
+      - name: Checkout release policy
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/firebase_tester_builder'
+          ref: 0cd9231227c5a26c686916f68f8630ce5a465e6f
+          path: .firebase_builder
+          sparse-checkout: |
+            .github/scripts/verify_r8_min_scores.py
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Detect native Kotlin Android project
+        id: project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -f pubspec.yaml ]; then
+            echo '::error::This workflow is for native Kotlin/Gradle Android apps only. Flutter apps must use Play Store Automation.'
+            exit 1
+          fi
+
+          if { [ -f settings.gradle ] || [ -f settings.gradle.kts ]; } && { [ -f app/build.gradle ] || [ -f app/build.gradle.kts ]; }; then
+            PROJECT_ROOT='.'
+          elif { [ -f android/settings.gradle ] || [ -f android/settings.gradle.kts ]; } && { [ -f android/app/build.gradle ] || [ -f android/app/build.gradle.kts ]; }; then
+            PROJECT_ROOT='android'
+          else
+            echo '::error::No supported native Android Gradle project found at repository root or android/.'
+            exit 1
+          fi
+
+          if ! find "$PROJECT_ROOT/app/src" -type f -name '*.kt' -print -quit 2>/dev/null | grep -q .; then
+            echo '::error::Gradle Android project found, but no Kotlin source files were detected under app/src.'
+            exit 1
+          fi
+
+          if [ -f "$PROJECT_ROOT/app/build.gradle.kts" ]; then
+            BUILD_FILE="$PROJECT_ROOT/app/build.gradle.kts"
+          else
+            BUILD_FILE="$PROJECT_ROOT/app/build.gradle"
+          fi
+
+          if [ -x "$PROJECT_ROOT/gradlew" ] || [ -f "$PROJECT_ROOT/gradlew" ]; then
+            HAS_WRAPPER=true
+          else
+            HAS_WRAPPER=false
+          fi
+
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
+          echo "BUILD_FILE=$BUILD_FILE" >> "$GITHUB_ENV"
+          echo "HAS_WRAPPER=$HAS_WRAPPER" >> "$GITHUB_ENV"
+          echo "root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
+          echo "has_wrapper=$HAS_WRAPPER" >> "$GITHUB_OUTPUT"
+          echo "Detected native Kotlin project at $PROJECT_ROOT"
+
+      - name: Setup standalone Gradle
+        if: steps.project.outputs.has_wrapper == 'false'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Configure Gradle launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$HAS_WRAPPER" = true ]; then
+            chmod +x "$PROJECT_ROOT/gradlew"
+            echo "GRADLE_CMD=./gradlew" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE_CMD=gradle" >> "$GITHUB_ENV"
+          fi
+
+      - name: Resolve package name and compile SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_NAME="$(grep -oP 'applicationId\s*=?\s*["'\'']\K[^"'\'']+' "$BUILD_FILE" | head -n 1 || true)"
+          if [ -z "$PACKAGE_NAME" ]; then
+            PACKAGE_NAME="$(grep -oP 'namespace\s*=?\s*["'\'']\K[^"'\'']+' "$BUILD_FILE" | head -n 1 || true)"
+          fi
+          if [ -z "$PACKAGE_NAME" ] || [[ "$PACKAGE_NAME" == *'${'* ]]; then
+            echo "::error::Could not determine applicationId/namespace from $BUILD_FILE"
+            exit 1
+          fi
+
+          COMPILE_SDK="$(grep -oP '(compileSdk|compileSdkVersion)\s*(=\s*)?\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
+          echo "PACKAGE_NAME=$PACKAGE_NAME" >> "$GITHUB_ENV"
+          echo "COMPILE_SDK=$COMPILE_SDK" >> "$GITHUB_ENV"
+          echo "Package: $PACKAGE_NAME"
+          echo "Compile SDK: ${COMPILE_SDK:-project default}"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install requested Android SDK/NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${COMPILE_SDK:-}" ]; then
+            if ! sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null; then
+              echo "::warning::Android API $COMPILE_SDK is not on the stable SDK channel; retrying preview channels."
+              if ! sdkmanager --channel=3 "platforms;android-$COMPILE_SDK" >/dev/null; then
+                echo "::warning::API $COMPILE_SDK unavailable in SDK manager; install API 36 and let AGP resolve compileSdk."
+                sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+              fi
+            fi
+          fi
+
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$PROJECT_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -n "$NDK_VERSION" ]; then
+            sdkmanager "ndk;$NDK_VERSION" >/dev/null
+            echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set keystore secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+
+      - name: Configure keystore
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROPERTIES_FILE=''
+          if [ -f "$PROJECT_ROOT/key.properties" ]; then
+            PROPERTIES_FILE="$PROJECT_ROOT/key.properties"
+          elif [ -f key.properties ]; then
+            PROPERTIES_FILE=key.properties
+          elif [ -f "$PROJECT_ROOT/old/android/key.properties" ]; then
+            PROPERTIES_FILE="$PROJECT_ROOT/old/android/key.properties"
+          fi
+
+          if [ -n "$PROPERTIES_FILE" ]; then
+            PROPERTIES_FILE="$PROPERTIES_FILE" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ['PROPERTIES_FILE'])
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('#{KEYSTORE_PASS}#', os.environ['STORE_PASS'])
+          text = text.replace('#{KEYSTORE_KEY_PASS}#', os.environ['KEY_PASS'])
+          path.write_text(text, encoding='utf-8')
+          PY
+            KEY_ALIAS="$(grep '^keyAlias=' "$PROPERTIES_FILE" | cut -d= -f2- | xargs | tr -d '\r' || true)"
+          else
+            KEY_ALIAS=''
+          fi
+          [ -n "$KEY_ALIAS" ] || KEY_ALIAS=key
+          echo "KEY_ALIAS=$KEY_ALIAS" >> "$GITHUB_ENV"
+
+          KEYSTORE_PATH="$(find "$PROJECT_ROOT/app" -maxdepth 2 -type f \( -name '*.jks' -o -name '*.keystore' \) -print -quit 2>/dev/null || true)"
+          if [ -z "$KEYSTORE_PATH" ] && [ -f "$PROJECT_ROOT/old/android/app/key.jks" ]; then
+            KEYSTORE_PATH="$PROJECT_ROOT/old/android/app/key.jks"
+          fi
+          if [ -z "$KEYSTORE_PATH" ]; then
+            KEYSTORE_PATH="$(find "$PROJECT_ROOT" -path '*/old/*' -prune -o -type f \( -name '*.jks' -o -name '*.keystore' \) -print | head -n1 || true)"
+          fi
+          if [ -z "$KEYSTORE_PATH" ]; then
+            echo '::error::No release keystore (.jks/.keystore) found.'
+            exit 1
+          fi
+          echo "KEYSTORE_PATH=$(realpath "$KEYSTORE_PATH")" >> "$GITHUB_ENV"
+
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-kotlin-gradle-${{ hashFiles('**/*.gradle', '**/*.gradle.kts', '**/gradle-wrapper.properties', '**/gradle.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-kotlin-gradle-
+
+      - name: Free disk space
+        uses: endersonmenezes/free-disk-space@v2
+        with:
+          remove_android: false
+          remove_dotnet: false
+          remove_haskell: true
+          remove_tool_cache: false
+          remove_swap: false
+          remove_packages_one_command: true
+          remove_folders: /usr/share/swift
+          testing: false
+
+      - name: Configure Gradle memory
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROPS="$PROJECT_ROOT/gradle.properties"
+          touch "$PROPS"
+          sed -i '/org.gradle.jvmargs=/d;/kotlin.daemon/d;/kotlin.compiler.execution.strategy=/d;/android.r8.jvmargs=/d;/org.gradle.workers.max=/d;/org.gradle.daemon=/d;/org.gradle.vfs.watch=/d' "$PROPS"
+          {
+            echo 'org.gradle.jvmargs=-Xms2g -Xmx10g -XX:+UseParallelGC -XX:ParallelGCThreads=2'
+            echo 'org.gradle.daemon=false'
+            echo 'org.gradle.vfs.watch=false'
+            echo 'org.gradle.workers.max=2'
+            echo 'kotlin.compiler.execution.strategy=in-process'
+            echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
+          } >> "$PROPS"
+
+      - name: Run Kotlin unit tests and release lint
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_ROOT"
+          "$GRADLE_CMD" :app:testDebugUnitTest :app:lintRelease --stacktrace
+
+      - name: Install Play API helper
+        run: python -m pip install --quiet google-auth requests
+
+      - name: Resolve next Play versionCode
+        env:
+          SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "BUILD_NAME=$(date -u +'%Y.%m.%d.%H%M')" >> "$GITHUB_ENV"
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+          from pathlib import Path
+
+          from google.auth.transport.requests import Request
+          from google.oauth2 import service_account
+
+          package_name = os.environ['PACKAGE_NAME']
+          service_account_json = os.environ.get('SERVICE_ACCOUNT_JSON', '')
+          if not service_account_json:
+              raise SystemExit('SERVICE_ACCOUNT_JSON is missing')
+
+          info = json.loads(service_account_json)
+          credentials = service_account.Credentials.from_service_account_info(
+              info,
+              scopes=['https://www.googleapis.com/auth/androidpublisher'],
+          )
+          credentials.refresh(Request())
+
+          base = (
+              'https://androidpublisher.googleapis.com/androidpublisher/v3/applications/'
+              + urllib.parse.quote(package_name, safe='')
+          )
+          headers = {
+              'Authorization': f'Bearer {credentials.token}',
+              'Content-Type': 'application/json',
+          }
+          transient = {408, 429, 500, 502, 503, 504}
+
+          def request_json(method, url, body=None):
+              data = None if body is None else json.dumps(body).encode()
+              for attempt in range(1, 6):
+                  req = urllib.request.Request(url, data=data, headers=headers, method=method)
+                  try:
+                      with urllib.request.urlopen(req, timeout=60) as response:
+                          raw = response.read().decode()
+                          return json.loads(raw) if raw else {}
+                  except urllib.error.HTTPError as exc:
+                      details = exc.read().decode(errors='replace')
+                      if exc.code not in transient or attempt == 5:
+                          raise RuntimeError(f'Google Play API failed: {exc.code} {details}') from exc
+                      time.sleep(min(2 ** attempt, 16))
+                  except urllib.error.URLError:
+                      if attempt == 5:
+                          raise
+                      time.sleep(min(2 ** attempt, 16))
+
+          edit = request_json('POST', f'{base}/edits', {})
+          edit_id = edit['id']
+          codes = []
+          try:
+              for item in request_json('GET', f'{base}/edits/{edit_id}/bundles').get('bundles', []):
+                  codes.append(int(item['versionCode']))
+              for item in request_json('GET', f'{base}/edits/{edit_id}/apks').get('apks', []):
+                  codes.append(int(item['versionCode']))
+              for track in request_json('GET', f'{base}/edits/{edit_id}/tracks').get('tracks', []):
+                  for release in track.get('releases', []):
+                      codes.extend(int(v) for v in release.get('versionCodes', []))
+          finally:
+              try:
+                  request_json('DELETE', f'{base}/edits/{edit_id}')
+              except Exception as exc:
+                  print(f'Warning: could not delete probe edit {edit_id}: {exc}')
+
+          text = Path(os.environ['BUILD_FILE']).read_text(encoding='utf-8')
+          local = 0
+          match = re.search(r'\bversionCode\s*(?:=\s*)?(\d+)', text)
+          if match:
+              local = int(match.group(1))
+
+          next_code = max(codes + [local, 0]) + 1
+          if next_code > 2_100_000_000:
+              raise SystemExit(f'Next versionCode {next_code} exceeds Google Play limit')
+
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
+              env_file.write(f'BUILD_NUMBER={next_code}\n')
+
+          print(f'Existing Play versionCodes: {sorted(set(codes))[-10:]}')
+          print(f'Local Gradle versionCode: {local}')
+          print(f'Next Android versionCode: {next_code}')
+          PY
+
+      - name: Apply release version to Gradle app
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          path = Path(os.environ['BUILD_FILE'])
+          text = path.read_text(encoding='utf-8')
+          code = os.environ['BUILD_NUMBER']
+          name = os.environ['BUILD_NAME']
+
+          text, code_count = re.subn(
+              r'(\bversionCode\s*=\s*)\d+',
+              lambda m: m.group(1) + code,
+              text,
+              count=1,
+          )
+          if not code_count:
+              text, code_count = re.subn(
+                  r'(\bversionCode\s+)\d+',
+                  lambda m: m.group(1) + code,
+                  text,
+                  count=1,
+              )
+          if not code_count:
+              raise SystemExit(
+                  f'Could not safely replace a literal versionCode in {path}. '
+                  'Native release automation currently requires a literal app versionCode.'
+              )
+
+          text, _ = re.subn(
+              r'(\bversionName\s*=\s*)["\'][^"\']*["\']',
+              lambda m: m.group(1) + '"' + name + '"',
+              text,
+              count=1,
+          )
+          path.write_text(text, encoding='utf-8')
+          print(f'Configured {path} with versionCode={code}, versionName={name}')
+          PY
+
+      - name: Build Kotlin release app bundle
+        env:
+          GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms2g -Xmx10g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dandroid.r8.jvmargs='-Xmx6g'"
+        shell: bash
+        run: |
+          set -uo pipefail
+          max_attempts=4
+          attempt=1
+
+          while true; do
+            log_file="$(mktemp)"
+            echo "Native Gradle release build attempt $attempt/$max_attempts"
+            set +e
+            (
+              cd "$PROJECT_ROOT"
+              "$GRADLE_CMD" :app:bundleRelease --stacktrace
+            ) 2>&1 | tee "$log_file"
+            status=${PIPESTATUS[0]}
+            set -e
+
+            if [ "$status" -eq 0 ]; then
+              rm -f "$log_file"
+              break
+            fi
+            if [ "$attempt" -ge "$max_attempts" ]; then
+              rm -f "$log_file"
+              exit "$status"
+            fi
+            if ! grep -Eqi 'HTTP 429|Too Many Requests|Could not (GET|HEAD)|timed out|timeout|Connection reset|Temporary failure|Network is unreachable' "$log_file"; then
+              echo '::error::Build failed for a non-transient reason; not retrying.'
+              rm -f "$log_file"
+              exit "$status"
+            fi
+
+            case "$attempt" in
+              1) delay=15 ;;
+              2) delay=45 ;;
+              *) delay=90 ;;
+            esac
+            rm -f "$log_file"
+            sleep "$delay"
+            attempt=$((attempt + 1))
+          done
+
+          AAB_PATH="$PROJECT_ROOT/app/build/outputs/bundle/release/app-release.aab"
+          if [ ! -f "$AAB_PATH" ]; then
+            echo "::error::Expected release AAB not found: $AAB_PATH"
+            find "$PROJECT_ROOT/app/build/outputs" -type f -name '*.aab' -print || true
+            exit 1
+          fi
+          echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
+
+      - name: Enforce global R8 25% gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py "$AAB_PATH"
+
+      - name: Run app-specific R8 verifier
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f .github/scripts/verify_r8_metrics.py ]; then
+            python3 .github/scripts/verify_r8_metrics.py
+          else
+            echo 'No app-specific R8 verifier found; global 25% gate already passed.'
+          fi
+
+      - name: Download bundletool
+        run: wget -q https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
+
+      - name: Verify built versionCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(java -jar bundletool.jar dump manifest --bundle="$AAB_PATH" --xpath=/manifest/@android:versionCode | tr -d '\r\n')"
+          if [ "$ACTUAL" != "$BUILD_NUMBER" ]; then
+            echo "::error::Built AAB versionCode is $ACTUAL, expected $BUILD_NUMBER"
+            exit 1
+          fi
+          echo "Verified AAB versionCode $ACTUAL"
+
+      - name: Extract universal APK
+        if: inputs.build_apk || inputs.run_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar bundletool.jar build-apks             --overwrite             --bundle="$AAB_PATH"             --output=app.apks             --mode=universal             --ks="$KEYSTORE_PATH"             --ks-pass="pass:$STORE_PASS"             --ks-key-alias="$KEY_ALIAS"             --key-pass="pass:$KEY_PASS"
+          unzip -oq app.apks -d extracted_apk
+          mv extracted_apk/universal.apk app-release.apk
+
+      - name: Upload universal release APK artifact
+        if: inputs.build_apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-kotlin-release-apk-${{ env.BUILD_NUMBER }}
+          path: app-release.apk
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Play Store AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-kotlin-play-aab-${{ env.BUILD_NUMBER }}
+          path: ${{ env.AAB_PATH }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Android release to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ env.PACKAGE_NAME }}
+          releaseFiles: ${{ env.AAB_PATH }}
+          tracks: ${{ inputs.play_track }}
+
+      - name: Authenticate to Google Cloud
+        if: inputs.run_tests
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      - name: Set up Cloud SDK
+        if: inputs.run_tests
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run Firebase Test Lab
+        if: inputs.run_tests
+        run: |
+          gcloud firebase test android run             --app=app-release.apk             --type=robo             --device=model=MediumPhone.arm,version=34             --timeout=300s             --no-auto-google-login
+
+      - name: Stop Gradle daemons
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${PROJECT_ROOT:-}" ] && [ -n "${GRADLE_CMD:-}" ]; then
+            (cd "$PROJECT_ROOT" && "$GRADLE_CMD" --stop)
+          fi
+          pkill -f GradleDaemon || true
