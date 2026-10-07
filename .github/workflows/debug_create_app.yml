@@ -271,7 +271,7 @@ jobs:
           name: ${{ steps.target.outputs.app }}-debug-${{ env.SHORT_SHA }}
           path: ${{ env.APK_PATH }}
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Publish APK to target GitHub Release
         continue-on-error: true
