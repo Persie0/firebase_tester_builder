@@ -18,8 +18,8 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertNotIn("          - Audiobooster\n", self.flutter)
 
     def test_fake_gps_detector_is_routed_to_kotlin(self):
-        self.assertIn("          - fake_gps_detector\\n", self.kotlin)
-        self.assertNotIn("          - fake_gps_detector\\n", self.flutter)
+        self.assertIn("          - fake_gps_detector\n", self.kotlin)
+        self.assertNotIn("          - fake_gps_detector\n", self.flutter)
 
     def test_flutter_projects_are_rejected(self):
         self.assertIn("if [ -f pubspec.yaml ]; then", self.kotlin)
