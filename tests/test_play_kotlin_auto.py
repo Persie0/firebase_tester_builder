@@ -48,6 +48,9 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertLess(gate, upload)
         self.assertIn("retention-days: 3", self.kotlin)
 
+    def test_preview_compile_sdks_are_supported(self):
+        self.assertIn("sdkmanager --channel=3", self.kotlin)
+
     def test_version_code_is_resolved_and_verified(self):
         self.assertIn("Resolve next Play versionCode", self.kotlin)
         self.assertIn("Verify built versionCode", self.kotlin)
