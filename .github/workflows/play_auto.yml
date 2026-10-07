@@ -1,4 +1,4 @@
-name: Play Store Automation
+name: Flutter Play Store Automation
 run-name: Deploy ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
