@@ -36,6 +36,12 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertNotIn("flutter build appbundle", self.kotlin)
         self.assertNotIn("subosito/flutter-action", self.kotlin)
 
+    def test_private_checkout_uses_token_fallback(self):
+        self.assertIn(
+            "secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN",
+            self.kotlin,
+        )
+
     def test_release_policy_and_play_upload_are_preserved(self):
         gate = self.kotlin.index("verify_r8_min_scores.py")
         upload = self.kotlin.index("r0adkll/upload-google-play")
