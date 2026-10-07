@@ -155,7 +155,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${COMPILE_SDK:-}" ]; then
-            sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null
+            if ! sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null; then
+              echo "::warning::Android API $COMPILE_SDK is not on the stable SDK channel; retrying preview channels."
+              sdkmanager --channel=3 "platforms;android-$COMPILE_SDK" >/dev/null
+            fi
           fi
 
           NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$PROJECT_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
