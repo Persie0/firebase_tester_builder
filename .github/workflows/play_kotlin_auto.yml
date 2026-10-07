@@ -54,7 +54,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/firebase_tester_builder'
-          ref: main
+          ref: 0cd9231227c5a26c686916f68f8630ce5a465e6f
           path: .firebase_builder
           sparse-checkout: |
             .github/scripts/verify_r8_min_scores.py
@@ -155,12 +155,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${COMPILE_SDK:-}" ]; then
-            yes | sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null || true
+            sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null
           fi
 
           NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$PROJECT_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
           if [ -n "$NDK_VERSION" ]; then
-            yes | sdkmanager "ndk;$NDK_VERSION" >/dev/null
+            sdkmanager "ndk;$NDK_VERSION" >/dev/null
             echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           fi
 
@@ -183,8 +183,16 @@ jobs:
           fi
 
           if [ -n "$PROPERTIES_FILE" ]; then
-            sed -i "s/#{KEYSTORE_PASS}#/${STORE_PASS}/g" "$PROPERTIES_FILE"
-            sed -i "s/#{KEYSTORE_KEY_PASS}#/${KEY_PASS}/g" "$PROPERTIES_FILE"
+            PROPERTIES_FILE="$PROPERTIES_FILE" python - <<'PY'
+          import os
+          from pathlib import Path
+
+          path = Path(os.environ['PROPERTIES_FILE'])
+          text = path.read_text(encoding='utf-8')
+          text = text.replace('#{KEYSTORE_PASS}#', os.environ['STORE_PASS'])
+          text = text.replace('#{KEYSTORE_KEY_PASS}#', os.environ['KEY_PASS'])
+          path.write_text(text, encoding='utf-8')
+          PY
             KEY_ALIAS="$(grep '^keyAlias=' "$PROPERTIES_FILE" | cut -d= -f2- | xargs | tr -d '\r' || true)"
           else
             KEY_ALIAS=''
