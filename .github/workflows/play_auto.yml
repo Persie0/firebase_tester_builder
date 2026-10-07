@@ -14,7 +14,6 @@ on:
           - image_enhancer
           - face_scanner
           - resistor_scanner
-          - root_detection_app
           - surebets_calculator
           - resistor-calc
           - fake_gps_detector
