@@ -324,7 +324,7 @@ jobs:
             build/*.ipa
             build/ios-debug-info/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
 
       - name: Install fastlane
         if: inputs.upload_to_testflight
