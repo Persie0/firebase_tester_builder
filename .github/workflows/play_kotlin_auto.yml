@@ -291,6 +291,21 @@ jobs:
             echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
           } >> "$PROPS"
 
+      - name: Verify Audiobooster GlitchTip configuration
+        if: inputs.app == 'Audiobooster'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GLITCHTIP_DSN:-}" ]; then
+            echo '::error::Create the audiobooster GlitchTip project and add GLITCHTIP_DSN_AUDIOBOOSTER as a secret to firebase_tester_builder before releasing Audiobooster.'
+            exit 1
+          fi
+          # Never print the DSN in CI logs. Only accept the configured server.
+          case "$GLITCHTIP_DSN" in
+            https://*@persie0.duckdns.org/*) ;;
+            *) echo '::error::Audiobooster DSN must point to the existing GlitchTip host.'; exit 1 ;;
+          esac
+
       - name: Run Kotlin unit tests and release lint
         shell: bash
         run: |
