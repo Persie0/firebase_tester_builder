@@ -12,6 +12,7 @@ on:
           - Audiobooster
           - root_detection_app
           - fake_gps_detector
+          - resistor-scanner-android
         default: Audiobooster
       build_apk:
         description: 'Build Universal APK'
@@ -51,6 +52,22 @@ jobs:
           repository: 'Persie0/${{ inputs.app }}'
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           ref: ${{ inputs.branch }}
+
+      - name: Prepare Resistor Scanner signing identity
+        if: inputs.app == 'resistor-scanner-android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          KEY_B64='.github/release-signing/resistor-scanner-upload-key.jks.b64'
+          test -f "$KEY_B64"
+          base64 --decode "$KEY_B64" > app/key.jks
+          cat > key.properties <<'EOF'
+          storePassword=#{KEYSTORE_PASS}#
+          keyPassword=#{KEYSTORE_KEY_PASS}#
+          keyAlias=key
+          storeFile=./key.jks
+          EOF
+          echo 'Prepared the existing Resistor Scanner Google Play signing identity.'
 
       - name: Checkout release policy
         uses: actions/checkout@v4
@@ -181,8 +198,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> "$GITHUB_ENV"
-          echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          if [[ "${{ inputs.app }}" == "resistor-scanner-android" ]]; then
+            echo "STORE_PASS=${{ secrets.RESISTOR_SCANNER_STORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_PASS=${{ secrets.RESISTOR_SCANNER_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          else
+            echo "STORE_PASS=${{ secrets.STORE_PASSWORD }}" >> "$GITHUB_ENV"
+            echo "KEY_PASS=${{ secrets.KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
 
       - name: Configure keystore
         shell: bash
