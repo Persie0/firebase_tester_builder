@@ -53,30 +53,21 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           ref: ${{ inputs.branch }}
 
-      - name: Checkout legacy Resistor Scanner signing identity
-        if: inputs.app == 'resistor-scanner-android'
-        uses: actions/checkout@v4
-        with:
-          repository: 'Persie0/resistor_scanner'
-          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
-          ref: tflite
-          path: .legacy_resistor_signing
-          sparse-checkout: |
-            android/key.properties
-            android/app/key.jks
-          sparse-checkout-cone-mode: false
-
       - name: Prepare Resistor Scanner signing identity
         if: inputs.app == 'resistor-scanner-android'
         shell: bash
         run: |
           set -euo pipefail
-          test -f .legacy_resistor_signing/android/key.properties
-          test -f .legacy_resistor_signing/android/app/key.jks
-          cp .legacy_resistor_signing/android/key.properties key.properties
-          cp .legacy_resistor_signing/android/app/key.jks app/key.jks
-          rm -rf .legacy_resistor_signing
-          echo 'Restored the existing Resistor Scanner Google Play signing identity.'
+          KEY_B64='.github/release-signing/resistor-scanner-upload-key.jks.b64'
+          test -f "$KEY_B64"
+          base64 --decode "$KEY_B64" > app/key.jks
+          cat > key.properties <<'EOF'
+          storePassword=#{KEYSTORE_PASS}#
+          keyPassword=#{KEYSTORE_KEY_PASS}#
+          keyAlias=key
+          storeFile=./key.jks
+          EOF
+          echo 'Prepared the existing Resistor Scanner Google Play signing identity.'
 
       - name: Checkout release policy
         uses: actions/checkout@v4
