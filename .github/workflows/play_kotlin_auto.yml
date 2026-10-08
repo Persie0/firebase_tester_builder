@@ -558,6 +558,98 @@ jobs:
             exit 1
           fi
           # Gradle plugin generates the ProGuard UUID packaged into the AAB.
+          # Verify the UUID also made it into the distributed bundle, not
+          # merely the Gradle intermediates directory.
+          if ! unzip -Z1 "$AAB_PATH" | grep -q 'sentry-debug-meta.properties          if ! find "$PROJECT_ROOT/app/build" -name 'sentry-debug-meta.properties' -type f -print -quit | grep -q .; then
+            echo '::error::Sentry ProGuard UUID metadata missing.'
+            exit 1
+          fi
+
+          curl -fsSL https://glitchtip.com/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v glitchtip-cli >/dev/null || {
+            echo '::error::glitchtip-cli installation failed.'
+            exit 1
+          }
+          echo "Uploading native R8 mapping to $SENTRY_URL ($SENTRY_ORG/$SENTRY_PROJECT)."
+          glitchtip-cli debug-files upload "$MAPPING"
+
+      - name: Download bundletool
+        run: wget -q https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
+
+      - name: Verify built versionCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTUAL="$(java -jar bundletool.jar dump manifest --bundle="$AAB_PATH" --xpath=/manifest/@android:versionCode | tr -d '\r\n')"
+          if [ "$ACTUAL" != "$BUILD_NUMBER" ]; then
+            echo "::error::Built AAB versionCode is $ACTUAL, expected $BUILD_NUMBER"
+            exit 1
+          fi
+          echo "Verified AAB versionCode $ACTUAL"
+
+      - name: Extract universal APK
+        if: inputs.build_apk || inputs.run_tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          java -jar bundletool.jar build-apks             --overwrite             --bundle="$AAB_PATH"             --output=app.apks             --mode=universal             --ks="$KEYSTORE_PATH"             --ks-pass="pass:$STORE_PASS"             --ks-key-alias="$KEY_ALIAS"             --key-pass="pass:$KEY_PASS"
+          unzip -oq app.apks -d extracted_apk
+          mv extracted_apk/universal.apk app-release.apk
+
+      - name: Upload universal release APK artifact
+        if: inputs.build_apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-kotlin-release-apk-${{ env.BUILD_NUMBER }}
+          path: app-release.apk
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Play Store AAB artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-kotlin-play-aab-${{ env.BUILD_NUMBER }}
+          path: ${{ env.AAB_PATH }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Upload Android release to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
+          packageName: ${{ env.PACKAGE_NAME }}
+          releaseFiles: ${{ env.AAB_PATH }}
+          tracks: ${{ inputs.play_track }}
+
+      - name: Authenticate to Google Cloud
+        if: inputs.run_tests
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
+
+      - name: Set up Cloud SDK
+        if: inputs.run_tests
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run Firebase Test Lab
+        if: inputs.run_tests
+        run: |
+          gcloud firebase test android run             --app=app-release.apk             --type=robo             --device=model=MediumPhone.arm,version=34             --timeout=300s             --no-auto-google-login
+
+      - name: Stop Gradle daemons
+        if: always()
+        shell: bash
+        run: |
+          set +e
+          if [ -n "${PROJECT_ROOT:-}" ] && [ -n "${GRADLE_CMD:-}" ]; then
+            (cd "$PROJECT_ROOT" && "$GRADLE_CMD" --stop)
+          fi
+          pkill -f GradleDaemon || true
+; then
+            echo '::error::The Play Store AAB is missing Sentry ProGuard UUID metadata.'
+            exit 1
+          fi
           if ! find "$PROJECT_ROOT/app/build" -name 'sentry-debug-meta.properties' -type f -print -quit | grep -q .; then
             echo '::error::Sentry ProGuard UUID metadata missing.'
             exit 1
