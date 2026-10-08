@@ -45,6 +45,9 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      # Only Audiobooster lacks a pre-existing Flutter GlitchTip DSN.
+      GLITCHTIP_DSN: ${{ inputs.app == 'Audiobooster' && secrets.GLITCHTIP_DSN_AUDIOBOOSTER || '' }}
     steps:
       - name: Checkout selected app
         uses: actions/checkout@v4
@@ -503,6 +506,56 @@ jobs:
           else
             echo 'No app-specific R8 verifier found; global 25% gate already passed.'
           fi
+
+      # Equivalent to Flutter debug-symbol upload, but Android uses R8 mapping.txt.
+      - name: Sentry / GlitchTip R8 mapping upload
+        continue-on-error: true
+        env:
+          GLITCHTIP_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          export SENTRY_URL='https://persie0.duckdns.org'
+          export SENTRY_ORG='personal'
+          case '${{ inputs.app }}' in
+            Audiobooster) SENTRY_PROJECT='audiobooster' ;;
+            root_detection_app) SENTRY_PROJECT='rootdetect' ;;
+            fake_gps_detector) SENTRY_PROJECT='fake-gps' ;;
+            resistor-scanner-android) SENTRY_PROJECT='resistor_scanner' ;;
+            *) echo '::error::No GlitchTip project configured for selected app.'; exit 1 ;;
+          esac
+          export SENTRY_PROJECT
+          export SENTRY_AUTH_TOKEN="${GLITCHTIP_AUTH_TOKEN:-}"
+
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo '::error::GLITCHTIP_AUTH_TOKEN is required to upload native Android mappings.'
+            exit 1
+          fi
+          if [ '${{ inputs.app }}' = Audiobooster ] && [ -z "${GLITCHTIP_DSN:-}" ]; then
+            echo '::error::GLITCHTIP_DSN_AUDIOBOOSTER is required for Audiobooster release monitoring.'
+            exit 1
+          fi
+
+          MAPPING="$PROJECT_ROOT/app/build/outputs/mapping/release/mapping.txt"
+          if [ ! -s "$MAPPING" ]; then
+            echo "::error::R8 mapping not found or empty: $MAPPING"
+            exit 1
+          fi
+          # Gradle plugin generates the ProGuard UUID packaged into the AAB.
+          if ! find "$PROJECT_ROOT/app/build" -name 'sentry-debug-meta.properties' -type f -print -quit | grep -q .; then
+            echo '::error::Sentry ProGuard UUID metadata missing.'
+            exit 1
+          fi
+
+          curl -fsSL https://glitchtip.com/install.sh | sh
+          export PATH="$HOME/.local/bin:$PATH"
+          command -v glitchtip-cli >/dev/null || {
+            echo '::error::glitchtip-cli installation failed.'
+            exit 1
+          }
+          echo "Uploading native R8 mapping to $SENTRY_URL ($SENTRY_ORG/$SENTRY_PROJECT)."
+          glitchtip-cli debug-files upload "$MAPPING"
 
       - name: Download bundletool
         run: wget -q https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
