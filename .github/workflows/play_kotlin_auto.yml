@@ -157,11 +157,16 @@ jobs:
         run: |
           set -euo pipefail
           if [ -n "${COMPILE_SDK:-}" ]; then
-            if ! sdkmanager "platforms;android-$COMPILE_SDK" >/dev/null; then
-              echo "::warning::Android API $COMPILE_SDK is not on the stable SDK channel; retrying preview channels."
-              if ! sdkmanager --channel=3 "platforms;android-$COMPILE_SDK" >/dev/null; then
-                echo "::warning::API $COMPILE_SDK unavailable in SDK manager; install API 36 and let AGP resolve compileSdk."
-                sdkmanager "platforms;android-36" "build-tools;36.0.0" >/dev/null
+            SDK_PLATFORM="platforms;android-$COMPILE_SDK"
+            if [ "$COMPILE_SDK" = "37" ]; then
+              # Android API 37 is published as a minor-version platform (37.0).
+              SDK_PLATFORM="platforms;android-37.0"
+            fi
+            if ! sdkmanager "$SDK_PLATFORM" >/dev/null; then
+              echo "::warning::SDK $SDK_PLATFORM not on stable channel; retrying preview channels."
+              if ! sdkmanager --channel=3 "$SDK_PLATFORM" >/dev/null; then
+                echo "::error::Required Android compile SDK is unavailable: $SDK_PLATFORM"
+                exit 1
               fi
             fi
           fi
