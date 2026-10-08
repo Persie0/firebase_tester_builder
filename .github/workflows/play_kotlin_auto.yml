@@ -557,14 +557,18 @@ jobs:
             echo "::error::R8 mapping not found or empty: $MAPPING"
             exit 1
           fi
-          # Gradle plugin generates the ProGuard UUID packaged into the AAB.
-          # Verify the UUID also made it into the distributed bundle, not
-          # merely the Gradle intermediates directory.
-          if ! unzip -Z1 "$AAB_PATH" | grep -q 'sentry-debug-meta.properties          if ! find "$PROJECT_ROOT/app/build" -name 'sentry-debug-meta.properties' -type f -print -quit | grep -q .; then
+          # Validate that the matching Sentry ProGuard UUID is generated and
+          # embedded in the distributed AAB, not just Gradle intermediates.
+          if ! find "$PROJECT_ROOT/app/build" -name 'sentry-debug-meta.properties' -type f -print -quit | grep -q .; then
             echo '::error::Sentry ProGuard UUID metadata missing.'
             exit 1
           fi
-
+          unzip -Z1 "$AAB_PATH" > "$RUNNER_TEMP/kotlin-aab-entries.txt"
+          if ! grep -q 'sentry-debug-meta.properties$' "$RUNNER_TEMP/kotlin-aab-entries.txt"; then
+            echo '::error::The Play Store AAB is missing Sentry ProGuard UUID metadata.'
+            exit 1
+          fi
+          
           curl -fsSL https://glitchtip.com/install.sh | sh
           export PATH="$HOME/.local/bin:$PATH"
           command -v glitchtip-cli >/dev/null || {
