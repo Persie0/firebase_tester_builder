@@ -45,9 +45,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      # Only Audiobooster lacks a pre-existing Flutter GlitchTip DSN.
-      GLITCHTIP_DSN: ${{ inputs.app == 'Audiobooster' && secrets.GLITCHTIP_DSN_AUDIOBOOSTER || '' }}
     steps:
       - name: Checkout selected app
         uses: actions/checkout@v4
@@ -291,21 +288,6 @@ jobs:
             echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
           } >> "$PROPS"
 
-      - name: Verify Audiobooster GlitchTip configuration
-        if: inputs.app == 'Audiobooster'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -z "${GLITCHTIP_DSN:-}" ]; then
-            echo '::error::Create the audiobooster GlitchTip project and add GLITCHTIP_DSN_AUDIOBOOSTER as a secret to firebase_tester_builder before releasing Audiobooster.'
-            exit 1
-          fi
-          # Never print the DSN in CI logs. Only accept the configured server.
-          case "$GLITCHTIP_DSN" in
-            https://*@persie0.duckdns.org/*) ;;
-            *) echo '::error::Audiobooster DSN must point to the existing GlitchTip host.'; exit 1 ;;
-          esac
-
       - name: Run Kotlin unit tests and release lint
         shell: bash
         run: |
@@ -545,10 +527,6 @@ jobs:
 
           if [ -z "$SENTRY_AUTH_TOKEN" ]; then
             echo '::error::GLITCHTIP_AUTH_TOKEN is required to upload native Android mappings.'
-            exit 1
-          fi
-          if [ '${{ inputs.app }}' = Audiobooster ] && [ -z "${GLITCHTIP_DSN:-}" ]; then
-            echo '::error::GLITCHTIP_DSN_AUDIOBOOSTER is required for Audiobooster release monitoring.'
             exit 1
           fi
 
