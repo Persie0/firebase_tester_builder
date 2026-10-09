@@ -13,22 +13,22 @@ for Kotlin apps.
 | `root_detection_app` | `personal` | `rootdetect` |
 | `fake_gps_detector` | `personal` | `fake-gps` |
 | `resistor-scanner-android` | `personal` | `resistor_scanner` |
-| `Audiobooster` | `personal` | `audiobooster` (create if missing) |
+| `Audiobooster` | `personal` | `audiobooster` (app DSN project ID 20) |
 
-All configurations point to `https://persie0.duckdns.org`. The first three
-reuse their **existing app DSNs** (including the exact scanner DSN from
-`Persie0/resistor_scanner/lib/main.dart`). Do not reuse another app's DSN for
-Audiobooster.
+All configurations point to `https://persie0.duckdns.org`. Each app carries its
+own DSN: Audiobooster already hardcodes its GlitchTip DSN in
+`GlitchTipMonitoring.kt` (project ID 20), and the Resistor Scanner retains the
+DSN from `Persie0/resistor_scanner/lib/main.dart`. No DSN CI secret is
+required. Do not reuse another app's DSN.
 
 ## Secrets required in the public release builder
 
 - `GLITCHTIP_AUTH_TOKEN`: the **CLI auth token**, required for symbol uploads;
   use the same secret as the Flutter workflow. Never commit or put this
   value in Gradle, Kotlin, an APK, or an AAB.
-- `GLITCHTIP_DSN_AUDIOBOOSTER`: a **project DSN** for the new
-  `personal/audiobooster` GlitchTip project. The builder intentionally rejects
-  an Audiobooster release if this is absent or points to a different host.
-  DSNs are public client configuration, unlike CLI auth tokens.
+**No `GLITCHTIP_DSN_AUDIOBOOSTER` secret is required.** Audiobooster's project
+DSN is already in its Kotlin monitoring initialization code. The builder needs
+only the auth token for symbol uploads; app-side DSNs are not CLI credentials.
 
 ## How mapping uploads work
 
