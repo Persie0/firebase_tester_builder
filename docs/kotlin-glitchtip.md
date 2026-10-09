@@ -15,20 +15,31 @@ for Kotlin apps.
 | `resistor-scanner-android` | `personal` | `resistor_scanner` |
 | `Audiobooster` | `personal` | `audiobooster` (app DSN project ID 20) |
 
-All configurations point to `https://persie0.duckdns.org`. Each app carries its
-own DSN: Audiobooster already hardcodes its GlitchTip DSN in
-`GlitchTipMonitoring.kt` (project ID 20), and the Resistor Scanner retains the
-DSN from `Persie0/resistor_scanner/lib/main.dart`. No DSN CI secret is
-required. Do not reuse another app's DSN.
+All configurations point to `https://persie0.duckdns.org`. Every app has
+its **own hardcoded GlitchTip DSN** in its native Kotlin Sentry initializer;
+no DSN GitHub Actions secret is needed.
+
+| App | Hardcoded DSN project ID |
+| --- | --- |
+| `Audiobooster` | `20` |
+| `root_detection_app` | `16` |
+| `fake_gps_detector` | `15` |
+| `resistor-scanner-android` | `14` |
+
+Before building, the Kotlin workflow reads the selected app's initializer,
+validates the hardcoded DSN host and numeric project ID, and resolves the
+corresponding `SENTRY_URL`, `SENTRY_ORG`, and `SENTRY_PROJECT` for CLI
+uploads. Missing or mismatched DSNs fail early instead of silently uploading
+mappings to the wrong GlitchTip project. Do not reuse another app's DSN.
 
 ## Secrets required in the public release builder
 
 - `GLITCHTIP_AUTH_TOKEN`: the **CLI auth token**, required for symbol uploads;
   use the same secret as the Flutter workflow. Never commit or put this
   value in Gradle, Kotlin, an APK, or an AAB.
-**No `GLITCHTIP_DSN_AUDIOBOOSTER` secret is required.** Audiobooster's project
-DSN is already in its Kotlin monitoring initialization code. The builder needs
-only the auth token for symbol uploads; app-side DSNs are not CLI credentials.
+**No per-app DSN secrets are required.** All four project DSNs are already
+in Kotlin source. The builder needs the auth token only for symbol uploads;
+app-side DSNs are not CLI credentials.
 
 ## How mapping uploads work
 
