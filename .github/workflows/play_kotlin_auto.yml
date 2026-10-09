@@ -128,6 +128,44 @@ jobs:
           echo "has_wrapper=$HAS_WRAPPER" >> "$GITHUB_OUTPUT"
           echo "Detected native Kotlin project at $PROJECT_ROOT"
 
+      # Match the Flutter release workflows: use the current legal content at
+      # release time, not the possibly outdated copy committed in each app.
+      - name: Checkout latest EULA repository
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/Persie0.github.io'
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN || github.token }}
+          path: eula_repo
+          sparse-checkout: |
+            translations_eula
+            static
+
+      - name: Refresh bundled Kotlin EULA and static assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE=eula_repo
+          TARGET="$PROJECT_ROOT/app/src/main/assets/eula"
+
+          # Fail before modifying existing assets if upstream is incomplete.
+          test -s "$SOURCE/translations_eula/eula-en.html" || {
+            echo '::error::Latest English EULA is missing or empty.'
+            exit 1
+          }
+          test -s "$SOURCE/static/legal-style.css" || {
+            echo '::error::Latest EULA stylesheet is missing or empty.'
+            exit 1
+          }
+
+          mkdir -p "$TARGET"
+          rm -rf "$TARGET/translations_eula" "$TARGET/static"
+          cp -R "$SOURCE/translations_eula" "$TARGET/"
+          cp -R "$SOURCE/static" "$TARGET/"
+
+          echo "Bundled $(find "$TARGET/translations_eula" -maxdepth 1 -name 'eula-*.html' -type f | wc -l) EULA translations."
+          echo "EULA source commit: $(git -C "$SOURCE" rev-parse HEAD)"
+          rm -rf "$SOURCE"
+
       - name: Resolve GlitchTip project from app DSN
         shell: bash
         env:
