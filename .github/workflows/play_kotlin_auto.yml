@@ -128,6 +128,72 @@ jobs:
           echo "has_wrapper=$HAS_WRAPPER" >> "$GITHUB_OUTPUT"
           echo "Detected native Kotlin project at $PROJECT_ROOT"
 
+      - name: Resolve GlitchTip project from app DSN
+        shell: bash
+        env:
+          KOTLIN_APP: ${{ inputs.app }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          from urllib.parse import urlsplit
+
+          # The DSN in each app's release Sentry initialization is the source
+          # of truth. Numeric GlitchTip project IDs are checked against the
+          # existing org/project slugs used for CLI symbol uploads.
+          apps = {
+              "Audiobooster": (
+                  "app/src/main/kotlin/com/persie0/audiobooster/GlitchTipMonitoring.kt",
+                  "20", "audiobooster",
+              ),
+              "root_detection_app": (
+                  "app/src/main/kotlin/at/persie0/root_detection_app/MainActivity.kt",
+                  "16", "rootdetect",
+              ),
+              "fake_gps_detector": (
+                  "app/src/main/java/at/austriao/fake_gps_detector_app/MainActivity.kt",
+                  "15", "fake-gps",
+              ),
+              "resistor-scanner-android": (
+                  "app/src/main/java/at/austriao/resistorscanner/GlitchTipMonitoring.kt",
+                  "14", "resistor_scanner",
+              ),
+          }
+          app = os.environ["KOTLIN_APP"]
+          if app not in apps:
+              raise SystemExit(f"::error::Unknown Kotlin app: {app}")
+          source, expected_id, project = apps[app]
+          source_path = Path(os.environ["PROJECT_ROOT"]) / source
+          if not source_path.is_file():
+              raise SystemExit(f"::error::Sentry initializer not found: {source_path}")
+          content = source_path.read_text(encoding="utf-8")
+          dsns = re.findall(
+              r"https://[A-Za-z0-9]+@persie0\.duckdns\.org/[0-9]+",
+              content,
+          )
+          if len(dsns) != 1:
+              raise SystemExit(
+                  f"::error::Expected exactly one hardcoded GlitchTip DSN in {source}; found {len(dsns)}"
+              )
+          url = urlsplit(dsns[0])
+          project_id = url.path.strip("/")
+          if project_id != expected_id:
+              raise SystemExit(
+                  f"::error::GlitchTip DSN project ID {project_id} in {source} "
+                  f"does not match {app}'s configured CLI project ID {expected_id}"
+              )
+          if url.hostname != "persie0.duckdns.org" or url.scheme != "https":
+              raise SystemExit("::error::Unexpected GlitchTip DSN host")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as env:
+              env.write(f"SENTRY_URL={url.scheme}://{url.hostname}\n")
+              env.write("SENTRY_ORG=personal\n")
+              env.write(f"SENTRY_PROJECT={project}\n")
+          # Do not log the full DSN or embed its public key in CI settings.
+          print(f"GlitchTip: personal/{project} (project ID {project_id}); DSN sourced from {source}")
+          PY
+
       - name: Setup standalone Gradle
         if: steps.project.outputs.has_wrapper == 'false'
         uses: gradle/actions/setup-gradle@v4
@@ -513,16 +579,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          export SENTRY_URL='https://persie0.duckdns.org'
-          export SENTRY_ORG='personal'
-          case '${{ inputs.app }}' in
-            Audiobooster) SENTRY_PROJECT='audiobooster' ;;
-            root_detection_app) SENTRY_PROJECT='rootdetect' ;;
-            fake_gps_detector) SENTRY_PROJECT='fake-gps' ;;
-            resistor-scanner-android) SENTRY_PROJECT='resistor_scanner' ;;
-            *) echo '::error::No GlitchTip project configured for selected app.'; exit 1 ;;
-          esac
-          export SENTRY_PROJECT
+          # SENTRY_URL, SENTRY_ORG and SENTRY_PROJECT were derived from and
+          # verified against this app's own hardcoded DSN before the build.
+          : "${SENTRY_URL:?Missing resolved GlitchTip URL}"
+          : "${SENTRY_ORG:?Missing resolved GlitchTip organization}"
+          : "${SENTRY_PROJECT:?Missing resolved GlitchTip project}"
+          export SENTRY_URL SENTRY_ORG SENTRY_PROJECT
           export SENTRY_AUTH_TOKEN="${GLITCHTIP_AUTH_TOKEN:-}"
 
           if [ -z "$SENTRY_AUTH_TOKEN" ]; then
