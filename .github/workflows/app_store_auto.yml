@@ -248,7 +248,7 @@ jobs:
             fi
             # xcodebuild may recompile Flutter during archive: preserve the
             # same define as flutter build ios, without echoing its value.
-            export DART_DEFINES="$(printf '%s' "TOILET_DB_KEY_B64=$TOILET_DB_KEY_B64" | base64 | tr -d '\\n')"
+            export DART_DEFINES="$(printf '%s' "TOILET_DB_KEY_B64=$TOILET_DB_KEY_B64" | base64 | tr -d '\n')"
           fi
 
           if [ -d ios/Runner.xcworkspace ]; then
