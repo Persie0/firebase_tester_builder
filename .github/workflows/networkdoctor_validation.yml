@@ -26,6 +26,12 @@ jobs:
           ref: main
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
 
+      - name: Record tested source revision
+        run: |
+          echo "NetworkDoctor source commit: $(git rev-parse HEAD)"
+          echo "### NetworkDoctor source" >> "$GITHUB_STEP_SUMMARY"
+          echo "`$(git rev-parse HEAD)`" >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
