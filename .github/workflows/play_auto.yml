@@ -358,10 +358,19 @@ jobs:
 
       - name: Build app bundle
         env:
+          TOILET_DB_KEY_B64: ${{ secrets.TOILET_DB_KEY_B64 }}
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms6g -Xmx13g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=1 -Dandroid.r8.jvmargs='-Xmx6g'"
         shell: bash
         run: |
           set -uo pipefail
+          DART_DEFINE_ARGS=()
+          if [[ "${{ inputs.app }}" == "toiletcompass" && -f lib/encrypted_database_file.dart ]]; then
+            if [[ -z "${TOILET_DB_KEY_B64:-}" ]]; then
+              echo "::error::Missing TOILET_DB_KEY_B64 for encrypted ToiletCompass databases"
+              exit 1
+            fi
+            DART_DEFINE_ARGS+=("--dart-define=TOILET_DB_KEY_B64=$TOILET_DB_KEY_B64")
+          fi
 
           max_attempts=4
           attempt=1
@@ -370,7 +379,7 @@ jobs:
             echo "Gradle/Flutter release build attempt $attempt/$max_attempts"
 
             set +e
-            flutter build appbundle \
+            flutter build appbundle "${DART_DEFINE_ARGS[@]}" \
               --obfuscate \
               --split-debug-info=./build \
               --build-name="$BUILD_NAME" \
