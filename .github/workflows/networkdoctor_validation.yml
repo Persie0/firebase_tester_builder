@@ -1,0 +1,79 @@
+name: NetworkDoctor Android Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/networkdoctor_validation.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: networkdoctor-android-validation
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Checkout NetworkDoctor
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/NetworkDoctor
+          ref: main
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install compile SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Prepare release signing
+        env:
+          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -s app/key.jks || { echo '::error::Missing release keystore'; exit 1; }
+          test -n "$STORE_PASS" && test -n "$KEY_PASS" || {
+            echo '::error::Release signing secrets are not configured'; exit 1;
+          }
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          path = Path("key.properties")
+          content = path.read_text()
+          content = content.replace("#{KEYSTORE_PASS}#", os.environ["STORE_PASS"])
+          content = content.replace("#{KEYSTORE_KEY_PASS}#", os.environ["KEY_PASS"])
+          path.write_text(content)
+          PY
+
+      - name: Run unit tests, lint, and signed release build
+        run: |
+          set -euo pipefail
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace --no-daemon
+
+      - name: Upload release bundle and mapping
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: NetworkDoctor-validation
+          path: |
+            app/build/outputs/bundle/release/*.aab
+            app/build/outputs/mapping/release/mapping.txt
+            app/build/reports/lint-results-release.html
+          if-no-files-found: warn
+          retention-days: 3
