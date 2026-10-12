@@ -1,7 +1,13 @@
 name: Kotlin Play Store Automation
-run-name: Deploy Kotlin ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
+run-name: ${{ github.event_name == 'push' && 'Validate NetworkDoctor' || format('Deploy Kotlin {0}', inputs.app) }} by @${{ github.actor }}
 
+# Changing this workflow on main also performs a build-only NetworkDoctor smoke test.
+# Manual workflow_dispatch continues to deliver apps to Play as before.
 on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/play_kotlin_auto.yml
   workflow_dispatch:
     inputs:
       app:
@@ -13,6 +19,7 @@ on:
           - root_detection_app
           - fake_gps_detector
           - resistor-scanner-android
+          - NetworkDoctor
         default: Audiobooster
       build_apk:
         description: 'Build Universal APK'
@@ -38,7 +45,7 @@ on:
         default: internal
 
 concurrency:
-  group: android-kotlin-release-${{ inputs.app }}
+  group: android-kotlin-release-${{ inputs.app || 'NetworkDoctor' }}
   cancel-in-progress: true
 
 jobs:
@@ -49,7 +56,7 @@ jobs:
       - name: Checkout selected app
         uses: actions/checkout@v4
         with:
-          repository: 'Persie0/${{ inputs.app }}'
+          repository: 'Persie0/${{ inputs.app || 'NetworkDoctor' }}'
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           ref: ${{ inputs.branch }}
 
@@ -169,7 +176,7 @@ jobs:
       - name: Resolve GlitchTip project from app DSN
         shell: bash
         env:
-          KOTLIN_APP: ${{ inputs.app }}
+          KOTLIN_APP: ${{ inputs.app || 'NetworkDoctor' }}
         run: |
           set -euo pipefail
           python3 - <<'PY'
@@ -182,6 +189,10 @@ jobs:
           # of truth. Numeric GlitchTip project IDs are checked against the
           # existing org/project slugs used for CLI symbol uploads.
           apps = {
+              "NetworkDoctor": (
+                  "app/src/main/java/at/persie0/networkdoctor/GlitchTipMonitoring.kt",
+                  "21", "networkdoctor",
+              ),
               "Audiobooster": (
                   "app/src/main/kotlin/com/persie0/audiobooster/GlitchTipMonitoring.kt",
                   "20", "audiobooster",
@@ -402,7 +413,26 @@ jobs:
       - name: Install Play API helper
         run: python -m pip install --quiet google-auth requests
 
+      - name: Use local versionCode for push-triggered NetworkDoctor validation
+        if: github.event_name == 'push'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+          text = Path(os.environ["BUILD_FILE"]).read_text(encoding="utf-8")
+          match = re.search(r'\bversionCode\s*(?:=\s*)?(\d+)', text)
+          if not match:
+              raise SystemExit("::error::Cannot determine local versionCode for validation")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write(f'BUILD_NUMBER={match.group(1)}\n')
+          print(f'Validating local Android versionCode {match.group(1)} without Play API access')
+          PY
+
       - name: Resolve next Play versionCode
+        if: github.event_name != 'push'
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         shell: bash
@@ -498,6 +528,7 @@ jobs:
           PY
 
       - name: Apply release version to Gradle app
+        if: github.event_name != 'push'
         shell: bash
         run: |
           set -euo pipefail
@@ -610,6 +641,7 @@ jobs:
 
       # Equivalent to Flutter debug-symbol upload, but Android uses R8 mapping.txt.
       - name: Sentry / GlitchTip R8 mapping upload
+        if: github.event_name != 'push'
         continue-on-error: true
         env:
           GLITCHTIP_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
@@ -671,7 +703,7 @@ jobs:
           echo "Verified AAB versionCode $ACTUAL"
 
       - name: Extract universal APK
-        if: inputs.build_apk || inputs.run_tests
+        if: inputs.build_apk || inputs.run_tests || github.event_name == 'push'
         shell: bash
         run: |
           set -euo pipefail
@@ -680,10 +712,10 @@ jobs:
           mv extracted_apk/universal.apk app-release.apk
 
       - name: Upload universal release APK artifact
-        if: inputs.build_apk
+        if: inputs.build_apk || github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app }}-kotlin-release-apk-${{ env.BUILD_NUMBER }}
+          name: ${{ inputs.app || 'NetworkDoctor' }}-kotlin-release-apk-${{ env.BUILD_NUMBER }}
           path: app-release.apk
           if-no-files-found: error
           retention-days: 3
@@ -691,12 +723,13 @@ jobs:
       - name: Upload Play Store AAB artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ inputs.app }}-kotlin-play-aab-${{ env.BUILD_NUMBER }}
+          name: ${{ inputs.app || 'NetworkDoctor' }}-kotlin-play-aab-${{ env.BUILD_NUMBER }}
           path: ${{ env.AAB_PATH }}
           if-no-files-found: error
           retention-days: 3
 
       - name: Upload Android release to Play Store
+        if: github.event_name != 'push'
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
