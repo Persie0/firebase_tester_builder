@@ -1,5 +1,5 @@
 name: Kotlin Play Store Automation
-run-name: ${{ github.event_name == 'push' && 'Validate NetworkDoctor' || format('Deploy Kotlin {0}', inputs.app) }} by @${{ github.actor }}
+run-name: Kotlin ${{ inputs.app || 'NetworkDoctor' }} by @${{ github.actor }}
 
 # Changing this workflow on main also performs a build-only NetworkDoctor smoke test.
 # Manual workflow_dispatch continues to deliver apps to Play as before.
