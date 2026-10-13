@@ -216,9 +216,19 @@ jobs:
           echo "FASTLANE_API_KEY_PATH=$FASTLANE_API_KEY_PATH" >> "$GITHUB_ENV"
 
       - name: Build Flutter iOS release assets
+        env:
+          TOILET_DB_KEY_B64: ${{ secrets.TOILET_DB_KEY_B64 }}
         run: |
           set -euo pipefail
-          flutter build ios \
+          DART_DEFINE_ARGS=()
+          if [[ "$APP_NAME" == "toiletcompass" && -f lib/encrypted_database_file.dart ]]; then
+            if [[ -z "${TOILET_DB_KEY_B64:-}" ]]; then
+              echo "::error::Missing TOILET_DB_KEY_B64 for encrypted ToiletCompass databases"
+              exit 1
+            fi
+            DART_DEFINE_ARGS+=("--dart-define=TOILET_DB_KEY_B64=$TOILET_DB_KEY_B64")
+          fi
+          flutter build ios "${DART_DEFINE_ARGS[@]}" \
             --release \
             --no-codesign \
             --build-name "$VERSION_NAME" \
@@ -227,8 +237,19 @@ jobs:
             --split-debug-info=build/ios-debug-info
 
       - name: Archive signed iOS app
+        env:
+          TOILET_DB_KEY_B64: ${{ secrets.TOILET_DB_KEY_B64 }}
         run: |
           set -euo pipefail
+          if [[ "$APP_NAME" == "toiletcompass" && -f lib/encrypted_database_file.dart ]]; then
+            if [[ -z "${TOILET_DB_KEY_B64:-}" ]]; then
+              echo "::error::Missing TOILET_DB_KEY_B64 for encrypted ToiletCompass databases"
+              exit 1
+            fi
+            # xcodebuild may recompile Flutter during archive: preserve the
+            # same define as flutter build ios, without echoing its value.
+            export DART_DEFINES="$(printf '%s' "TOILET_DB_KEY_B64=$TOILET_DB_KEY_B64" | base64 | tr -d '\n')"
+          fi
 
           if [ -d ios/Runner.xcworkspace ]; then
             XCODE_CONTAINER=(-workspace ios/Runner.xcworkspace)
