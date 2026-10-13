@@ -1,4 +1,5 @@
 name: NetworkDoctor Android Validation
+# Validates NetworkDoctor PR #3 including latest triage and clearer user guidance.
 
 on:
   push:
