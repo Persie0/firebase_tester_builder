@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/NetworkDoctor
-          ref: ${{ inputs.branch || '094a461c5820f9c1a8ffca8c4207394627e75e6a' }}
+          ref: ${{ inputs.branch || 'be81fc4c4c501ec8714c2a3e3f037a14f6e226f7' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
 
       - name: Record source revision
