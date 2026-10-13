@@ -2,6 +2,9 @@ name: NetworkDoctor Android Validation
 # Manual build-only checks for any NetworkDoctor branch; never uploads to Google Play.
 
 on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/networkdoctor_validation.yml]
   workflow_dispatch:
     inputs:
       branch:
@@ -25,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/NetworkDoctor
-          ref: ${{ inputs.branch || 'main' }}
+          ref: ${{ inputs.branch || '220e2d49e5fc08d512bc6713ec8d87f332e590b9' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
 
       - name: Record source revision
