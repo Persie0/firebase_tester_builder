@@ -129,7 +129,7 @@ jobs:
           profile: pixel_6
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
-          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest --no-daemon --stacktrace
+          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest,at.persie0.VideoUpscaler.LauncherIconInstrumentedTest --no-daemon --stacktrace
       - name: Remove signing files
         if: always()
         shell: bash
