@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/video_upscaler_android
-          ref: ${{ inputs.app_branch || 'feat/material-you-accessible-redesign' }}
+          ref: ${{ inputs.app_branch || '3c046ca3e78ffe348017f6636ed6773a2f270d00' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Checkout existing private Audiobooster upload key
