@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace --no-daemon
+          gradle :app:testDebugUnitTest :app:assembleDebugAndroidTest :app:lintRelease :app:bundleRelease --stacktrace --no-daemon
           test -s app/build/outputs/bundle/release/app-release.aab
           test -s app/build/outputs/mapping/release/mapping.txt
           jarsigner -verify app/build/outputs/bundle/release/app-release.aab >/dev/null
@@ -120,6 +120,16 @@ jobs:
         run: |
           set -euo pipefail
           python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py app/build/outputs/bundle/release/app-release.aab
+      - name: Run focused accessibility instrumentation on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest --no-daemon --stacktrace
       - name: Remove signing files
         if: always()
         shell: bash
