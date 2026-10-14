@@ -22,8 +22,8 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertNotIn("          - fake_gps_detector\n", self.flutter)
 
     def test_video_upscaler_is_native_kotlin_release_target(self):
-        self.assertIn("          - video_upscaler_android\\n", self.kotlin)
-        self.assertNotIn("          - video_upscaler_android\\n", self.flutter)
+        self.assertIn("          - video_upscaler_android\n", self.kotlin)
+        self.assertNotIn("          - video_upscaler_android\n", self.flutter)
         self.assertIn('"video_upscaler_android": (', self.kotlin)
         self.assertIn('"24", "video_upscaler"', self.kotlin)
         self.assertIn("at.persie0.VideoUpscaler", self.kotlin)
