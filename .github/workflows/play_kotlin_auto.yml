@@ -14,6 +14,7 @@ on:
           - fake_gps_detector
           - resistor-scanner-android
           - NetworkDoctor
+          - video_upscaler_android
         default: Audiobooster
       build_apk:
         description: 'Build Universal APK'
@@ -53,6 +54,47 @@ jobs:
           repository: 'Persie0/${{ inputs.app }}'
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           ref: ${{ inputs.branch }}
+
+      # Share the already-owned Audiobooster upload identity without
+      # committing another copy of its private key to this Android repo.
+      - name: Checkout Audiobooster signing identity
+        if: inputs.app == 'video_upscaler_android'
+        uses: actions/checkout@v4
+        with:
+          repository: 'Persie0/Audiobooster'
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: .audiobooster-signing
+          sparse-checkout: |
+            app/key.jks
+            key.properties
+          sparse-checkout-cone-mode: false
+
+      - name: Install Video Upscaler upload signing files
+        if: inputs.app == 'video_upscaler_android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .audiobooster-signing/app/key.jks || {
+            echo '::error::Audiobooster upload keystore is missing.'
+            exit 1
+          }
+          test -s .audiobooster-signing/key.properties || {
+            echo '::error::Audiobooster release key.properties is missing.'
+            exit 1
+          }
+          # Copy the original placeholder config and every JKS upload key,
+          # preserving their filenames, only within this ephemeral runner.
+          cp .audiobooster-signing/key.properties key.properties
+          find .audiobooster-signing/app -maxdepth 1 -type f -name '*.jks' \
+            -exec cp -t app/ -- {} +
+          test -s app/key.jks
+          chmod 600 app/*.jks key.properties
+          # The repo checkout and template must not leak into build inputs/artifacts.
+          rm -rf .audiobooster-signing
+          grep -Fxq 'storeFile=./key.jks' key.properties
+          grep -Fxq 'keyAlias=key' key.properties
+          echo 'Prepared existing Audiobooster upload certificate for Video Upscaler.'
 
       - name: Prepare Resistor Scanner signing identity
         if: inputs.app == 'resistor-scanner-android'
@@ -186,6 +228,10 @@ jobs:
               "NetworkDoctor": (
                   "app/src/main/java/at/persie0/networkdoctor/GlitchTipMonitoring.kt",
                   "21", "networkdoctor",
+              ),
+              "video_upscaler_android": (
+                  "app/src/main/java/at/persie0/VideoUpscaler/GlitchTipMonitoring.kt",
+                  "24", "video_upscaler",
               ),
               "Audiobooster": (
                   "app/src/main/kotlin/com/persie0/audiobooster/GlitchTipMonitoring.kt",
@@ -358,6 +404,21 @@ jobs:
             exit 1
           fi
           echo "KEYSTORE_PATH=$(realpath "$KEYSTORE_PATH")" >> "$GITHUB_ENV"
+
+      - name: Verify Video Upscaler upload signing identity
+        if: inputs.app == 'video_upscaler_android'
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${PACKAGE_NAME}" = 'at.persie0.VideoUpscaler' || {
+            echo '::error::Unexpected Video Upscaler application ID.'
+            exit 1
+          }
+          test -s "${KEYSTORE_PATH}"
+          test -n "${STORE_PASS}" && test -n "${KEY_PASS}"
+          keytool -list -keystore "${KEYSTORE_PATH}" \
+            -storepass "${STORE_PASS}" -alias "${KEY_ALIAS}" >/dev/null
+          echo 'Upload keystore and application identity verified.'
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4

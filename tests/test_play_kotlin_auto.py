@@ -21,6 +21,31 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertIn("          - fake_gps_detector\n", self.kotlin)
         self.assertNotIn("          - fake_gps_detector\n", self.flutter)
 
+    def test_video_upscaler_is_native_kotlin_release_target(self):
+        self.assertIn("          - video_upscaler_android\n", self.kotlin)
+        self.assertNotIn("          - video_upscaler_android\n", self.flutter)
+        self.assertIn('"video_upscaler_android": (', self.kotlin)
+        self.assertIn('"24", "video_upscaler"', self.kotlin)
+        self.assertIn("at.persie0.VideoUpscaler", self.kotlin)
+
+    def test_video_upscaler_reuses_private_audiobooster_keystore(self):
+        self.assertIn("Checkout Audiobooster signing identity", self.kotlin)
+        self.assertIn("repository: 'Persie0/Audiobooster'", self.kotlin)
+        self.assertIn("app/key.jks", self.kotlin)
+        self.assertIn("key.properties", self.kotlin)
+        self.assertIn("find .audiobooster-signing/app", self.kotlin)
+        self.assertIn("-name '*.jks'", self.kotlin)
+        self.assertIn("-exec cp -t app/ -- {} +", self.kotlin)
+        self.assertIn("cp .audiobooster-signing/key.properties key.properties", self.kotlin)
+        self.assertIn("rm -rf .audiobooster-signing", self.kotlin)
+        self.assertIn("keytool -list -keystore", self.kotlin)
+        self.assertIn("secrets.STORE_PASSWORD", self.kotlin)
+        self.assertIn("secrets.KEY_PASSWORD", self.kotlin)
+        self.assertLess(
+            self.kotlin.index("Install Video Upscaler upload signing files"),
+            self.kotlin.index("Configure keystore"),
+        )
+
     def test_flutter_projects_are_rejected(self):
         self.assertIn("if [ -f pubspec.yaml ]; then", self.kotlin)
         self.assertIn("native Kotlin/Gradle Android apps only", self.kotlin)

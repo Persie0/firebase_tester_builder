@@ -1,0 +1,128 @@
+name: Video Upscaler signed release validation
+# This workflow NEVER contacts Google Play and never publishes upload artifacts.
+# It verifies the new Kotlin Play target and the existing Audiobooster upload
+# identity on an ephemeral GitHub Actions runner in the public builder repo.
+on:
+  push:
+    paths:
+      - .github/workflows/video_upscaler_validation.yml
+      - .github/workflows/play_kotlin_auto.yml
+      - tests/test_play_kotlin_auto.py
+  workflow_dispatch:
+    inputs:
+      app_branch:
+        description: Video Upscaler Android branch to validate
+        required: false
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-upscaler-kotlin-signed-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  workflow-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check native Kotlin Play release routing and signing contract
+        run: python3 -m unittest discover -s tests -p 'test_play_kotlin_auto.py' -v
+
+  signed-bundle:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout Video Upscaler Android
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/video_upscaler_android
+          ref: ${{ inputs.app_branch || 'main' }}
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+      - name: Checkout existing private Audiobooster upload key
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/Audiobooster
+          token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
+          persist-credentials: false
+          path: .audiobooster-signing
+          sparse-checkout: |
+            app/key.jks
+            key.properties
+          sparse-checkout-cone-mode: false
+      - name: Configure ephemeral release signing
+        env:
+          STORE_PASS: ${{ secrets.STORE_PASSWORD }}
+          KEY_PASS: ${{ secrets.KEY_PASSWORD }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${STORE_PASS:?STORE_PASSWORD is not configured}"
+          : "${KEY_PASS:?KEY_PASSWORD is not configured}"
+          test -s .audiobooster-signing/app/key.jks
+          test -s .audiobooster-signing/key.properties
+          cp .audiobooster-signing/key.properties key.properties
+          find .audiobooster-signing/app -maxdepth 1 -type f -name '*.jks' \
+            -exec cp -t app/ -- {} +
+          test -s app/key.jks
+          chmod 600 app/*.jks key.properties
+          rm -rf .audiobooster-signing
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          p = Path("key.properties")
+          c = p.read_text()
+          assert "keyAlias=key" in c and "storeFile=./key.jks" in c
+          c = c.replace("#{KEYSTORE_PASS}#", os.environ["STORE_PASS"])
+          c = c.replace("#{KEYSTORE_KEY_PASS}#", os.environ["KEY_PASS"])
+          p.write_text(c)
+          PY
+          keytool -list -keystore app/key.jks -storepass "$STORE_PASS" -alias key >/dev/null
+          echo "Existing private upload certificate validated without exposing credentials."
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android 37 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager --licenses >/dev/null <<<'y' || true
+          sdkmanager 'platforms;android-37.0' || sdkmanager --channel=3 'platforms;android-37.0'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+      - name: Validate Kotlin tests lint signed release and R8
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace --no-daemon
+          test -s app/build/outputs/bundle/release/app-release.aab
+          test -s app/build/outputs/mapping/release/mapping.txt
+          jarsigner -verify app/build/outputs/bundle/release/app-release.aab >/dev/null
+          echo "Signed AAB, R8 mapping, Kotlin tests and release lint verified."
+      - name: Checkout Play release R8 policy
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: 0cd9231227c5a26c686916f68f8630ce5a465e6f
+          path: .firebase_builder
+          sparse-checkout: |
+            .github/scripts/verify_r8_min_scores.py
+          sparse-checkout-cone-mode: false
+      - name: Verify global release R8 optimization gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py app/build/outputs/bundle/release/app-release.aab
+      - name: Remove signing files
+        if: always()
+        shell: bash
+        run: |
+          rm -f app/*.jks key.properties
+          rm -rf .audiobooster-signing
