@@ -83,9 +83,13 @@ jobs:
             echo '::error::Toilet Compass release key.properties is missing.'
             exit 1
           }
-          cp .toiletcompass-signing/android/app/key.jks app/key.jks
+          # Copy the original placeholder config and every JKS upload key,
+          # preserving their filenames, only within this ephemeral runner.
           cp .toiletcompass-signing/android/key.properties key.properties
-          chmod 600 app/key.jks key.properties
+          find .toiletcompass-signing/android/app -maxdepth 1 -type f -name '*.jks' \
+            -exec cp -t app/ -- {} +
+          test -s app/key.jks
+          chmod 600 app/*.jks key.properties
           # The repo checkout and template must not leak into build inputs/artifacts.
           rm -rf .toiletcompass-signing
           grep -Fxq 'storeFile=./key.jks' key.properties
