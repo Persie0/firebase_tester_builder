@@ -38,7 +38,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: Persie0/video_upscaler_android
-          ref: ${{ inputs.app_branch || 'a1883dbaa2adb3894ecd132e08b1d68c067873fd' }}
+          ref: ${{ inputs.app_branch || '37a5bf90170ac16ac641cea1e5c97d8a490f8069' }}
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
       - name: Checkout existing private Audiobooster upload key
