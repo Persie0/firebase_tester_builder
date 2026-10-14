@@ -64,7 +64,7 @@ jobs:
           test -s .audiobooster-signing/app/key.jks
           test -s .audiobooster-signing/key.properties
           cp .audiobooster-signing/key.properties key.properties
-          find .audiobooster-signing/android/app -maxdepth 1 -type f -name '*.jks' \
+          find .audiobooster-signing/app -maxdepth 1 -type f -name '*.jks' \
             -exec cp -t app/ -- {} +
           test -s app/key.jks
           chmod 600 app/*.jks key.properties
