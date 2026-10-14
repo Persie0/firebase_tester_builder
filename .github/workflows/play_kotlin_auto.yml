@@ -55,19 +55,19 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           ref: ${{ inputs.branch }}
 
-      # Share the already-owned Toilet Compass upload identity without
+      # Share the already-owned Audiobooster upload identity without
       # committing another copy of its private key to this Android repo.
-      - name: Checkout Toilet Compass signing identity
+      - name: Checkout Audiobooster signing identity
         if: inputs.app == 'video_upscaler_android'
         uses: actions/checkout@v4
         with:
-          repository: 'Persie0/toiletcompass'
+          repository: 'Persie0/Audiobooster'
           token: ${{ secrets.PRIVATE_REPO_TOKEN || secrets.GH_TOKEN || secrets.GH_RELEASE_TOKEN }}
           persist-credentials: false
-          path: .toiletcompass-signing
+          path: .audiobooster-signing
           sparse-checkout: |
-            android/app/key.jks
-            android/key.properties
+            app/key.jks
+            key.properties
           sparse-checkout-cone-mode: false
 
       - name: Install Video Upscaler upload signing files
@@ -75,26 +75,26 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -s .toiletcompass-signing/android/app/key.jks || {
-            echo '::error::Toilet Compass upload keystore is missing.'
+          test -s .audiobooster-signing/app/key.jks || {
+            echo '::error::Audiobooster upload keystore is missing.'
             exit 1
           }
-          test -s .toiletcompass-signing/android/key.properties || {
-            echo '::error::Toilet Compass release key.properties is missing.'
+          test -s .audiobooster-signing/key.properties || {
+            echo '::error::Audiobooster release key.properties is missing.'
             exit 1
           }
           # Copy the original placeholder config and every JKS upload key,
           # preserving their filenames, only within this ephemeral runner.
-          cp .toiletcompass-signing/android/key.properties key.properties
-          find .toiletcompass-signing/android/app -maxdepth 1 -type f -name '*.jks' \
+          cp .audiobooster-signing/key.properties key.properties
+          find .audiobooster-signing/android/app -maxdepth 1 -type f -name '*.jks' \
             -exec cp -t app/ -- {} +
           test -s app/key.jks
           chmod 600 app/*.jks key.properties
           # The repo checkout and template must not leak into build inputs/artifacts.
-          rm -rf .toiletcompass-signing
+          rm -rf .audiobooster-signing
           grep -Fxq 'storeFile=./key.jks' key.properties
           grep -Fxq 'keyAlias=key' key.properties
-          echo 'Prepared existing Toilet Compass upload certificate for Video Upscaler.'
+          echo 'Prepared existing Audiobooster upload certificate for Video Upscaler.'
 
       - name: Prepare Resistor Scanner signing identity
         if: inputs.app == 'resistor-scanner-android'
