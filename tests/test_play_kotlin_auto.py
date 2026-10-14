@@ -21,6 +21,29 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertIn("          - fake_gps_detector\n", self.kotlin)
         self.assertNotIn("          - fake_gps_detector\n", self.flutter)
 
+    def test_video_upscaler_is_native_kotlin_release_target(self):
+        self.assertIn("          - video_upscaler_android\\n", self.kotlin)
+        self.assertNotIn("          - video_upscaler_android\\n", self.flutter)
+        self.assertIn('"video_upscaler_android": (', self.kotlin)
+        self.assertIn('"24", "video_upscaler"', self.kotlin)
+        self.assertIn("at.persie0.VideoUpscaler", self.kotlin)
+
+    def test_video_upscaler_reuses_private_toiletcompass_keystore(self):
+        self.assertIn("Checkout Toilet Compass signing identity", self.kotlin)
+        self.assertIn("repository: 'Persie0/toiletcompass'", self.kotlin)
+        self.assertIn("android/app/key.jks", self.kotlin)
+        self.assertIn("android/key.properties", self.kotlin)
+        self.assertIn("cp .toiletcompass-signing/android/app/key.jks app/key.jks", self.kotlin)
+        self.assertIn("cp .toiletcompass-signing/android/key.properties key.properties", self.kotlin)
+        self.assertIn("rm -rf .toiletcompass-signing", self.kotlin)
+        self.assertIn("keytool -list -keystore", self.kotlin)
+        self.assertIn("secrets.STORE_PASSWORD", self.kotlin)
+        self.assertIn("secrets.KEY_PASSWORD", self.kotlin)
+        self.assertLess(
+            self.kotlin.index("Install Video Upscaler upload signing files"),
+            self.kotlin.index("Configure keystore"),
+        )
+
     def test_flutter_projects_are_rejected(self):
         self.assertIn("if [ -f pubspec.yaml ]; then", self.kotlin)
         self.assertIn("native Kotlin/Gradle Android apps only", self.kotlin)
