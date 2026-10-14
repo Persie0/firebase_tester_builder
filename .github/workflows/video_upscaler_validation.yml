@@ -63,9 +63,11 @@ jobs:
           : "${KEY_PASS:?KEY_PASSWORD is not configured}"
           test -s .toiletcompass-signing/android/app/key.jks
           test -s .toiletcompass-signing/android/key.properties
-          cp .toiletcompass-signing/android/app/key.jks app/key.jks
           cp .toiletcompass-signing/android/key.properties key.properties
-          chmod 600 app/key.jks key.properties
+          find .toiletcompass-signing/android/app -maxdepth 1 -type f -name '*.jks' \
+            -exec cp -t app/ -- {} +
+          test -s app/key.jks
+          chmod 600 app/*.jks key.properties
           rm -rf .toiletcompass-signing
           python3 - <<'PY'
           import os
@@ -108,5 +110,5 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -f app/key.jks key.properties
+          rm -f app/*.jks key.properties
           rm -rf .toiletcompass-signing
