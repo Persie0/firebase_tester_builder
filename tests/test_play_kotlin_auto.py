@@ -33,7 +33,7 @@ class KotlinPlayAutoTest(unittest.TestCase):
         self.assertIn("repository: 'Persie0/Audiobooster'", self.kotlin)
         self.assertIn("app/key.jks", self.kotlin)
         self.assertIn("key.properties", self.kotlin)
-        self.assertIn("find .audiobooster-signing/android/app", self.kotlin)
+        self.assertIn("find .audiobooster-signing/app", self.kotlin)
         self.assertIn("-name '*.jks'", self.kotlin)
         self.assertIn("-exec cp -t app/ -- {} +", self.kotlin)
         self.assertIn("cp .audiobooster-signing/key.properties key.properties", self.kotlin)
