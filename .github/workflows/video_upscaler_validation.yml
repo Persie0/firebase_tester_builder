@@ -130,6 +130,26 @@ jobs:
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
           script: gradle :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=at.persie0.VideoUpscaler.EditorAccessibilityTest,at.persie0.VideoUpscaler.LauncherIconInstrumentedTest --no-daemon --stacktrace
+      - name: Collect instrumentation failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          find app/build/outputs/androidTest-results app/build/reports/androidTests -type f 2>/dev/null | head -40 || true
+          python3 - <<'PY'
+          from pathlib import Path
+          for root in ("app/build/outputs/androidTest-results", "app/build/reports/androidTests"):
+              for file in Path(root).rglob("*.xml"):
+                  print("REPORT",file, file.read_text(errors="replace")[:10000])
+          PY
+      - name: Upload Android instrumentation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-upscaler-android-instrumentation
+          path: |
+            app/build/outputs/androidTest-results/connected/
+            app/build/reports/androidTests/connected/
+          if-no-files-found: ignore
       - name: Remove signing files
         if: always()
         shell: bash
