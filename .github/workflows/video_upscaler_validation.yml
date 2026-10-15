@@ -101,7 +101,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle :app:testDebugUnitTest :app:lintRelease :app:bundleRelease --stacktrace --no-daemon
+          gradle :app:testDebugUnitTest :app:compileDebugAndroidTestKotlin :app:lintRelease :app:bundleRelease --stacktrace --no-daemon
           test -s app/build/outputs/bundle/release/app-release.aab
           test -s app/build/outputs/mapping/release/mapping.txt
           jarsigner -verify app/build/outputs/bundle/release/app-release.aab >/dev/null
