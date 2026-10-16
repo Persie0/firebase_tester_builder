@@ -1,42 +1,36 @@
 # Android projects in subfolders (Kotlin)
 
-Only three workflows are installed in `.github/workflows`:
+Kotlin **debug** and **release** builds use separate workflows again.
 
-- `app_store_auto.yml` — iOS release automation
-- `play_auto.yml` — Flutter release automation
-- `play_kotlin_auto.yml` — Kotlin debug builds and Android/Google Play releases
+| Workflow | Purpose |
+| --- | --- |
+| `debug_create_app.yml` | Build a debug APK for any chosen GitHub repository; upload an Actions artifact and target-repository prerelease |
+| `debug_build_release_reusable.yml` | Reusable debug APK/release publisher for caller repositories |
+| `play_kotlin_auto.yml` | Kotlin **release only**: AAB artifact and optional Google Play upload |
+| `play_auto.yml` | Flutter releases |
+| `app_store_auto.yml` | iOS releases |
 
-The standalone validation/checking workflows and previous cross-repository debug-release workflows have been removed. Native Kotlin debug builds are now available through **Kotlin Play Store Automation** with **build_variant: debug**.
+Standalone project-validation/checking workflows remain removed.
 
-## Supported project layouts
+## Kotlin subfolder support
 
-Kotlin builds discover the Gradle root using a settings file (`settings.gradle` or `settings.gradle.kts`) and `app/build.gradle[.kts]`, plus Kotlin sources under `app/src`.
+All Kotlin Gradle workflows use `.github/scripts/detect_android_project.py` to find `settings.gradle[.kts]` and `app/build.gradle[.kts]`, plus Kotlin source files in `app/src` for the Kotlin Play release workflow.
 
-Examples:
+Supported layouts include:
 
-- Repository root: `settings.gradle.kts`, `app/build.gradle.kts`
-- `android/settings.gradle.kts`, `android/app/build.gradle.kts`
-- `kotlin-android/settings.gradle.kts`, `kotlin-android/app/build.gradle.kts` — **SkipSilencePlayer**
-- `apps/player/android/settings.gradle.kts` for monorepositories
+- Gradle project at the repository root
+- `android/`
+- `kotlin-android/` — used by `Persie0/SkipSilencePlayer`
+- `apps/player/android/` and similar deeper layouts
 
-Root and `android/` keep precedence to preserve existing behavior. If multiple nonstandard Gradle apps are found, pass `project_dir` explicitly to avoid building the wrong one. A committed Gradle wrapper is used when present; otherwise the workflow installs standalone Gradle.
+The project wrapper is used if available; otherwise standalone Gradle is configured. Root and `android/` take priority when more than one Gradle app exists; otherwise, pass `project_dir` to explicitly select one.
 
-## Building SkipSilencePlayer
+## SkipSilencePlayer
 
-In **Actions → Kotlin Play Store Automation → Run workflow**, choose:
+**Debug APK:** Actions → **Debug Create App**, set `app=SkipSilencePlayer`, `owner=Persie0`, and leave `project_dir` blank or set `kotlin-android`. The workflow builds `:app:testDebugUnitTest :app:assembleDebug` and publishes a debug APK artifact/prerelease.
 
-| Input | Debug APK | Build-only release AAB |
-| --- | --- | --- |
-| `app` | `SkipSilencePlayer` | `SkipSilencePlayer` |
-| `build_variant` | `debug` | `release` |
-| `project_dir` | blank (auto) or `kotlin-android` | blank (auto) or `kotlin-android` |
-| `publish_to_play` | Ignored for debug | **false** until Play signing and publishing are configured |
-| `build_apk` | Ignored for debug | Only used when publishing a signed release |
+**Release AAB:** Actions → **Kotlin Play Store Automation**, choose `app=SkipSilencePlayer`, leave `project_dir` blank or set `kotlin-android`, and set `publish_to_play=false` until signing and a Play listing are configured. The workflow builds `:app:bundleRelease` and uploads the AAB artifact. An artifact-only AAB is not necessarily Play-signed.
 
-Debug builds invoke `:app:testDebugUnitTest :app:assembleDebug` and upload `app-debug.apk` as an Actions artifact.
+Existing configured Kotlin apps use the previous release signing, Play version selection, EULA refresh, R8 verification, GlitchTip mapping uploads, and optional Firebase Test Lab when `publish_to_play=true`.
 
-Release builds invoke `:app:bundleRelease` and upload `app-release.aab`. An artifact-only release is **not automatically signed**; it is a build artifact, not a Play-ready deliverable unless the app itself configures release signing. Set `publish_to_play: true` only for projects with valid Play registration, upload keystore, release configuration, and service account permissions.
-
-For existing Play-managed Kotlin apps, leaving `build_variant: release` and `publish_to_play: true` preserves the EULA refresh, GlitchTip, Play versioning, R8 checks, signing, AAB submission, and optional Firebase Test Lab workflow.
-
-The build action checks out repositories via `PRIVATE_REPO_TOKEN || GH_TOKEN || GH_RELEASE_TOKEN` as before. It does not run separate CI validation workflows.
+No debug APK build is performed by the Kotlin Play release workflow. No separate validation/checking Actions have been restored.
