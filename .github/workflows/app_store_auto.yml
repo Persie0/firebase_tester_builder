@@ -108,8 +108,16 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Resolve Flutter dependencies
-        run: flutter pub get
+      - name: Resolve Flutter dependencies (refresh Appodeal fork)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq '^[[:space:]]*stack_appodeal_flutter:' pubspec.yaml; then
+            # A git ref such as main is still frozen by pubspec.lock until upgraded.
+            flutter pub upgrade stack_appodeal_flutter
+          else
+            flutter pub get
+          fi
 
       - name: Install CocoaPods dependencies
         run: |
