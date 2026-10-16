@@ -8,6 +8,11 @@ on:
         required: false
         default: ''
         type: string
+      project_dir:
+        description: 'Optional Android Gradle project directory, detected when omitted'
+        required: false
+        default: ''
+        type: string
       prerelease:
         description: 'Publish the generated GitHub Release as a prerelease'
         required: false
@@ -66,25 +71,27 @@ jobs:
           # consumes gigabytes that a headless APK build never uses.
           packages: platform-tools
 
+      - name: Checkout Android project detector
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          path: .firebase_builder_detector
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/detect_android_project.py
+          sparse-checkout-cone-mode: false
+
       - name: Detect project type
         id: project
+        env:
+          SELECTED_PROJECT_DIR: ${{ inputs.project_dir }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ -f pubspec.yaml ]; then
-            echo 'type=flutter' >> "$GITHUB_OUTPUT"
-          elif [ -f android/gradlew ]; then
-            echo 'type=gradle-wrapper-android' >> "$GITHUB_OUTPUT"
-          elif [ -f gradlew ]; then
-            echo 'type=gradle-wrapper-root' >> "$GITHUB_OUTPUT"
-          elif [ -f android/settings.gradle ] || [ -f android/settings.gradle.kts ]; then
-            echo 'type=gradle-system-android' >> "$GITHUB_OUTPUT"
-          elif [ -f settings.gradle ] || [ -f settings.gradle.kts ]; then
-            echo 'type=gradle-system-root' >> "$GITHUB_OUTPUT"
-          else
-            echo '::error::No supported Flutter/Gradle Android project was found.'
-            exit 1
-          fi
+          python3 .firebase_builder_detector/.github/scripts/detect_android_project.py \
+            --project-dir "${SELECTED_PROJECT_DIR:-}" \
+            --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
 
       - name: Setup Flutter
         if: steps.project.outputs.type == 'flutter'
@@ -122,7 +129,7 @@ jobs:
           fi
 
       - name: Setup standalone Gradle
-        if: startsWith(steps.project.outputs.type, 'gradle-system-')
+        if: steps.project.outputs.type == 'gradle-system'
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.6.0'
@@ -131,18 +138,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          PROJECT_TYPE='${{ steps.project.outputs.type }}'
-          case "$PROJECT_TYPE" in
-            gradle-wrapper-root|gradle-system-root) ANDROID_ROOT='.' ;;
-            *) ANDROID_ROOT='android' ;;
-          esac
+          NDK_SEARCH_ROOT="$PROJECT_ROOT"
+          if [ "${{ steps.project.outputs.type }}" = 'flutter' ]; then NDK_SEARCH_ROOT='android'; fi
+          if [ ! -d "$NDK_SEARCH_ROOT" ]; then exit 0; fi
 
-          if [ ! -d "$ANDROID_ROOT" ]; then
-            exit 0
-          fi
-
-          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$ANDROID_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
-          if [ -z "$NDK_VERSION" ] && find "$ANDROID_ROOT" -name CMakeLists.txt -print -quit | grep -q .; then
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$NDK_SEARCH_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -z "$NDK_VERSION" ] && find "$NDK_SEARCH_ROOT" -name CMakeLists.txt -print -quit | grep -q .; then
             NDK_VERSION='28.2.13676358'
           fi
           if [ -n "$NDK_VERSION" ]; then
@@ -157,32 +158,20 @@ jobs:
           flutter pub get
           flutter build apk --debug
 
-      - name: Build Android debug APK with project wrapper
-        if: steps.project.outputs.type == 'gradle-wrapper-android'
+      - name: Build Android debug APK with Gradle wrapper
+        if: steps.project.outputs.type == 'gradle-wrapper'
         shell: bash
         run: |
           set -euo pipefail
-          chmod +x android/gradlew
-          (cd android && ./gradlew :app:assembleDebug --stacktrace)
-
-      - name: Build Android debug APK with root wrapper
-        if: steps.project.outputs.type == 'gradle-wrapper-root'
-        shell: bash
-        run: |
-          set -euo pipefail
-          chmod +x gradlew
-          ./gradlew :app:assembleDebug --stacktrace
+          chmod +x "$PROJECT_ROOT/gradlew"
+          (cd "$PROJECT_ROOT" && ./gradlew :app:assembleDebug --stacktrace)
 
       - name: Build Android debug APK with standalone Gradle
-        if: startsWith(steps.project.outputs.type, 'gradle-system-')
+        if: steps.project.outputs.type == 'gradle-system'
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.project.outputs.type }}" = 'gradle-system-android' ]; then
-            gradle -p android :app:assembleDebug --stacktrace
-          else
-            gradle :app:assembleDebug --stacktrace
-          fi
+          gradle -p "$PROJECT_ROOT" :app:assembleDebug --stacktrace
 
       - name: Select debug APK
         shell: bash
@@ -191,7 +180,7 @@ jobs:
           if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
             APK='build/app/outputs/flutter-apk/app-debug.apk'
           else
-            APK="$(find . -type f -path '*/build/outputs/apk/debug/*.apk' ! -name '*androidTest*' -printf '%s %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+            APK="$(find "$PROJECT_ROOT/app/build/outputs/apk" -type f -path '*/debug/*.apk' ! -name '*androidTest*' -printf '%s %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
           fi
           if [ -z "${APK:-}" ] || [ ! -f "$APK" ]; then
             echo '::error::Debug build completed but no debug APK was found.'
