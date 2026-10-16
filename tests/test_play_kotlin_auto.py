@@ -46,22 +46,31 @@ class KotlinPlayAutoTest(unittest.TestCase):
             self.kotlin.index("Configure keystore"),
         )
 
-    def test_flutter_projects_are_rejected(self):
-        self.assertIn("if [ -f pubspec.yaml ]; then", self.kotlin)
-        self.assertIn("native Kotlin/Gradle Android apps only", self.kotlin)
+    def test_project_directory_detection_is_shared(self):
+        self.assertIn("--mode native-kotlin", self.kotlin)
+        self.assertIn("detect_android_project.py", self.kotlin)
+        self.assertIn("inputs.project_dir", self.kotlin)
+        self.assertIn("PROJECT_ROOT", self.kotlin)
 
-    def test_root_and_android_gradle_layouts_are_detected(self):
-        self.assertIn("[ -f settings.gradle.kts ]", self.kotlin)
-        self.assertIn("[ -f app/build.gradle.kts ]", self.kotlin)
-        self.assertIn("[ -f android/settings.gradle.kts ]", self.kotlin)
-        self.assertIn("[ -f android/app/build.gradle.kts ]", self.kotlin)
+    def test_nested_player_is_available(self):
+        self.assertIn("          - SkipSilencePlayer", self.kotlin)
+        self.assertIn("          - release", self.kotlin)
+        self.assertIn("          - debug", self.kotlin)
+        self.assertIn("inputs.build_variant == 'debug'", self.kotlin)
+        self.assertIn(":app:assembleDebug", self.kotlin)
+        self.assertIn("inputs.publish_to_play", self.kotlin)
+        self.assertIn("AAB_PATH=$AAB_PATH", self.kotlin)
 
     def test_kotlin_sources_are_required(self):
-        self.assertIn("-name '*.kt'", self.kotlin)
+        detector = (REPO_ROOT / ".github" / "scripts" / "detect_android_project.py").read_text()
+        self.assertIn('root / "app" / "src"', detector)
+        self.assertIn('rglob("*.kt")', detector)
 
-    def test_native_gradle_release_is_used(self):
+    def test_native_gradle_release_and_debug_are_used(self):
         self.assertIn(":app:testDebugUnitTest :app:lintRelease", self.kotlin)
         self.assertIn(":app:bundleRelease", self.kotlin)
+        self.assertIn(":app:assembleDebug", self.kotlin)
+        self.assertIn("Upload Kotlin debug APK", self.kotlin)
         self.assertNotIn("flutter build appbundle", self.kotlin)
         self.assertNotIn("subosito/flutter-action", self.kotlin)
 
@@ -79,6 +88,23 @@ class KotlinPlayAutoTest(unittest.TestCase):
 
     def test_preview_compile_sdks_are_supported(self):
         self.assertIn("sdkmanager --channel=3", self.kotlin)
+        self.assertIn(r"release\s*\(\s*\K[0-9]+", self.kotlin)
+
+    def test_release_only_steps_are_guarded(self):
+        for step in (
+            "Resolve next Play versionCode", "Configure keystore",
+            "Sentry / GlitchTip R8 mapping upload", "Upload Android release to Play Store",
+        ):
+            self.assertIn(
+                f"- name: {step}\n        if: inputs.build_variant == 'release' && inputs.publish_to_play",
+                self.kotlin,
+            )
+
+    def test_only_release_and_build_workflows_remain(self):
+        workflows = sorted(path.name for path in (REPO_ROOT / ".github" / "workflows").glob("*.yml"))
+        self.assertEqual(
+            workflows, ["app_store_auto.yml", "play_auto.yml", "play_kotlin_auto.yml"]
+        )
 
     def test_version_code_is_resolved_and_verified(self):
         self.assertIn("Resolve next Play versionCode", self.kotlin)
