@@ -315,9 +315,9 @@ jobs:
             exit 1
           fi
 
-          COMPILE_SDK="$(grep -oP '(compileSdk|compileSdkVersion)\\s*(=\\s*)?\\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
+          COMPILE_SDK="$(grep -oP '(compileSdk|compileSdkVersion)\s*(=\s*)?\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
           if [ -z "$COMPILE_SDK" ]; then
-            COMPILE_SDK="$(grep -oP 'release\\s*\\(\\s*\\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
+            COMPILE_SDK="$(grep -oP 'release\s*\(\s*\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
           fi
           echo "PACKAGE_NAME=$PACKAGE_NAME" >> "$GITHUB_ENV"
           echo "COMPILE_SDK=$COMPILE_SDK" >> "$GITHUB_ENV"
