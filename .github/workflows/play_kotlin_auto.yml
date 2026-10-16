@@ -30,6 +30,10 @@ on:
         description: 'Branch to checkout (leave empty for default)'
         required: false
         default: ''
+      project_dir:
+        description: 'Optional native Android project subfolder; auto-detected if empty'
+        required: false
+        default: ''
       play_track:
         description: 'Google Play delivery target'
         required: false
@@ -127,49 +131,29 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Checkout Android project detector
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: ${{ github.sha }}
+          path: .firebase_builder_detector
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/detect_android_project.py
+          sparse-checkout-cone-mode: false
+
       - name: Detect native Kotlin Android project
         id: project
         shell: bash
+        env:
+          SELECTED_PROJECT_DIR: ${{ inputs.project_dir }}
         run: |
           set -euo pipefail
-
-          if [ -f pubspec.yaml ]; then
-            echo '::error::This workflow is for native Kotlin/Gradle Android apps only. Flutter apps must use Play Store Automation.'
-            exit 1
-          fi
-
-          if { [ -f settings.gradle ] || [ -f settings.gradle.kts ]; } && { [ -f app/build.gradle ] || [ -f app/build.gradle.kts ]; }; then
-            PROJECT_ROOT='.'
-          elif { [ -f android/settings.gradle ] || [ -f android/settings.gradle.kts ]; } && { [ -f android/app/build.gradle ] || [ -f android/app/build.gradle.kts ]; }; then
-            PROJECT_ROOT='android'
-          else
-            echo '::error::No supported native Android Gradle project found at repository root or android/.'
-            exit 1
-          fi
-
-          if ! find "$PROJECT_ROOT/app/src" -type f -name '*.kt' -print -quit 2>/dev/null | grep -q .; then
-            echo '::error::Gradle Android project found, but no Kotlin source files were detected under app/src.'
-            exit 1
-          fi
-
-          if [ -f "$PROJECT_ROOT/app/build.gradle.kts" ]; then
-            BUILD_FILE="$PROJECT_ROOT/app/build.gradle.kts"
-          else
-            BUILD_FILE="$PROJECT_ROOT/app/build.gradle"
-          fi
-
-          if [ -x "$PROJECT_ROOT/gradlew" ] || [ -f "$PROJECT_ROOT/gradlew" ]; then
-            HAS_WRAPPER=true
-          else
-            HAS_WRAPPER=false
-          fi
-
-          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
-          echo "BUILD_FILE=$BUILD_FILE" >> "$GITHUB_ENV"
-          echo "HAS_WRAPPER=$HAS_WRAPPER" >> "$GITHUB_ENV"
-          echo "root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
-          echo "has_wrapper=$HAS_WRAPPER" >> "$GITHUB_OUTPUT"
-          echo "Detected native Kotlin project at $PROJECT_ROOT"
+          python3 .firebase_builder_detector/.github/scripts/detect_android_project.py \
+            --mode native-kotlin \
+            --project-dir "${SELECTED_PROJECT_DIR:-}" \
+            --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+          echo "root=$(sed -n 's/^PROJECT_ROOT=//p' "$GITHUB_ENV" | tail -n1)" >> "$GITHUB_STEP_SUMMARY"
 
       # Match the Flutter release workflows: use the current legal content at
       # release time, not the possibly outdated copy committed in each app.
