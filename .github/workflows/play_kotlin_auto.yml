@@ -1,5 +1,5 @@
 name: Kotlin Play Store Automation
-run-name: Deploy Kotlin ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
+run-name: Build Kotlin ${{ inputs.app }} (${{ inputs.build_variant }})${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
   workflow_dispatch:
@@ -15,7 +15,21 @@ on:
           - resistor-scanner-android
           - NetworkDoctor
           - video_upscaler_android
+          - SkipSilencePlayer
         default: Audiobooster
+      build_variant:
+        description: 'Native Android build variant'
+        required: true
+        type: choice
+        options:
+          - release
+          - debug
+        default: release
+      publish_to_play:
+        description: 'Upload release to Google Play (disable for apps without Play signing/setup)'
+        required: false
+        type: boolean
+        default: true
       build_apk:
         description: 'Build Universal APK'
         required: false
@@ -30,6 +44,10 @@ on:
         description: 'Branch to checkout (leave empty for default)'
         required: false
         default: ''
+      project_dir:
+        description: 'Optional native Android project subfolder; auto-detected if empty'
+        required: false
+        default: ''
       play_track:
         description: 'Google Play delivery target'
         required: false
@@ -40,7 +58,7 @@ on:
         default: internal
 
 concurrency:
-  group: android-kotlin-release-${{ inputs.app }}
+  group: android-kotlin-build-${{ inputs.app }}
   cancel-in-progress: true
 
 jobs:
@@ -58,7 +76,7 @@ jobs:
       # Share the already-owned Audiobooster upload identity without
       # committing another copy of its private key to this Android repo.
       - name: Checkout Audiobooster signing identity
-        if: inputs.app == 'video_upscaler_android'
+        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/Audiobooster'
@@ -71,7 +89,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Install Video Upscaler upload signing files
-        if: inputs.app == 'video_upscaler_android'
+        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -97,7 +115,7 @@ jobs:
           echo 'Prepared existing Audiobooster upload certificate for Video Upscaler.'
 
       - name: Prepare Resistor Scanner signing identity
-        if: inputs.app == 'resistor-scanner-android'
+        if: inputs.app == 'resistor-scanner-android' && inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -113,6 +131,7 @@ jobs:
           echo 'Prepared the existing Resistor Scanner Google Play signing identity.'
 
       - name: Checkout release policy
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/firebase_tester_builder'
@@ -127,53 +146,34 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Checkout Android project detector
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: ${{ github.sha }}
+          path: .firebase_builder_detector
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/detect_android_project.py
+          sparse-checkout-cone-mode: false
+
       - name: Detect native Kotlin Android project
         id: project
         shell: bash
+        env:
+          SELECTED_PROJECT_DIR: ${{ inputs.project_dir }}
         run: |
           set -euo pipefail
-
-          if [ -f pubspec.yaml ]; then
-            echo '::error::This workflow is for native Kotlin/Gradle Android apps only. Flutter apps must use Play Store Automation.'
-            exit 1
-          fi
-
-          if { [ -f settings.gradle ] || [ -f settings.gradle.kts ]; } && { [ -f app/build.gradle ] || [ -f app/build.gradle.kts ]; }; then
-            PROJECT_ROOT='.'
-          elif { [ -f android/settings.gradle ] || [ -f android/settings.gradle.kts ]; } && { [ -f android/app/build.gradle ] || [ -f android/app/build.gradle.kts ]; }; then
-            PROJECT_ROOT='android'
-          else
-            echo '::error::No supported native Android Gradle project found at repository root or android/.'
-            exit 1
-          fi
-
-          if ! find "$PROJECT_ROOT/app/src" -type f -name '*.kt' -print -quit 2>/dev/null | grep -q .; then
-            echo '::error::Gradle Android project found, but no Kotlin source files were detected under app/src.'
-            exit 1
-          fi
-
-          if [ -f "$PROJECT_ROOT/app/build.gradle.kts" ]; then
-            BUILD_FILE="$PROJECT_ROOT/app/build.gradle.kts"
-          else
-            BUILD_FILE="$PROJECT_ROOT/app/build.gradle"
-          fi
-
-          if [ -x "$PROJECT_ROOT/gradlew" ] || [ -f "$PROJECT_ROOT/gradlew" ]; then
-            HAS_WRAPPER=true
-          else
-            HAS_WRAPPER=false
-          fi
-
-          echo "PROJECT_ROOT=$PROJECT_ROOT" >> "$GITHUB_ENV"
-          echo "BUILD_FILE=$BUILD_FILE" >> "$GITHUB_ENV"
-          echo "HAS_WRAPPER=$HAS_WRAPPER" >> "$GITHUB_ENV"
-          echo "root=$PROJECT_ROOT" >> "$GITHUB_OUTPUT"
-          echo "has_wrapper=$HAS_WRAPPER" >> "$GITHUB_OUTPUT"
-          echo "Detected native Kotlin project at $PROJECT_ROOT"
+          python3 .firebase_builder_detector/.github/scripts/detect_android_project.py \
+            --mode native-kotlin \
+            --project-dir "${SELECTED_PROJECT_DIR:-}" \
+            --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+          echo "root=$(sed -n 's/^PROJECT_ROOT=//p' "$GITHUB_ENV" | tail -n1)" >> "$GITHUB_STEP_SUMMARY"
 
       # Match the Flutter release workflows: use the current legal content at
       # release time, not the possibly outdated copy committed in each app.
       - name: Checkout latest EULA repository
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/Persie0.github.io'
@@ -184,6 +184,7 @@ jobs:
             static
 
       - name: Refresh bundled Kotlin EULA and static assets
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -210,6 +211,7 @@ jobs:
           rm -rf "$SOURCE"
 
       - name: Resolve GlitchTip project from app DSN
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         env:
           KOTLIN_APP: ${{ inputs.app }}
@@ -314,6 +316,9 @@ jobs:
           fi
 
           COMPILE_SDK="$(grep -oP '(compileSdk|compileSdkVersion)\s*(=\s*)?\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
+          if [ -z "$COMPILE_SDK" ]; then
+            COMPILE_SDK="$(grep -oP 'release\s*\(\s*\K[0-9]+' "$BUILD_FILE" | head -n1 || true)"
+          fi
           echo "PACKAGE_NAME=$PACKAGE_NAME" >> "$GITHUB_ENV"
           echo "COMPILE_SDK=$COMPILE_SDK" >> "$GITHUB_ENV"
           echo "Package: $PACKAGE_NAME"
@@ -350,6 +355,7 @@ jobs:
           fi
 
       - name: Set keystore secrets
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -362,6 +368,7 @@ jobs:
           fi
 
       - name: Configure keystore
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -406,7 +413,7 @@ jobs:
           echo "KEYSTORE_PATH=$(realpath "$KEYSTORE_PATH")" >> "$GITHUB_ENV"
 
       - name: Verify Video Upscaler upload signing identity
-        if: inputs.app == 'video_upscaler_android'
+        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -459,6 +466,7 @@ jobs:
           } >> "$PROPS"
 
       - name: Run Kotlin unit tests and release lint
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -466,9 +474,11 @@ jobs:
           "$GRADLE_CMD" :app:testDebugUnitTest :app:lintRelease --stacktrace
 
       - name: Install Play API helper
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         run: python -m pip install --quiet google-auth requests
 
       - name: Resolve next Play versionCode
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         shell: bash
@@ -564,6 +574,7 @@ jobs:
           PY
 
       - name: Apply release version to Gradle app
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -606,7 +617,31 @@ jobs:
           print(f'Configured {path} with versionCode={code}, versionName={name}')
           PY
 
+      - name: Build Kotlin debug APK
+        if: inputs.build_variant == 'debug'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd "$PROJECT_ROOT" && "$GRADLE_CMD" :app:testDebugUnitTest :app:assembleDebug --stacktrace)
+          APK="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
+          if [ ! -f "$APK" ]; then
+            echo "::error::Expected Kotlin debug APK not found at $APK"
+            find "$PROJECT_ROOT/app/build/outputs/apk" -name '*.apk' -type f -print || true
+            exit 1
+          fi
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+
+      - name: Upload Kotlin debug APK
+        if: inputs.build_variant == 'debug'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-kotlin-debug-apk-${{ github.run_number }}
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Build Kotlin release app bundle
+        if: inputs.build_variant == 'release'
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms2g -Xmx10g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dandroid.r8.jvmargs='-Xmx6g'"
         shell: bash
@@ -659,12 +694,14 @@ jobs:
           echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
 
       - name: Enforce global R8 25% gate
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
           python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py "$AAB_PATH"
 
       - name: Run app-specific R8 verifier
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -676,6 +713,7 @@ jobs:
 
       # Equivalent to Flutter debug-symbol upload, but Android uses R8 mapping.txt.
       - name: Sentry / GlitchTip R8 mapping upload
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         continue-on-error: true
         env:
           GLITCHTIP_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
@@ -723,9 +761,11 @@ jobs:
           glitchtip-cli debug-files upload "$MAPPING"
 
       - name: Download bundletool
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         run: wget -q https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
 
       - name: Verify built versionCode
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -737,7 +777,7 @@ jobs:
           echo "Verified AAB versionCode $ACTUAL"
 
       - name: Extract universal APK
-        if: inputs.build_apk || inputs.run_tests
+        if: inputs.build_variant == 'release' && inputs.publish_to_play && (inputs.build_apk || inputs.run_tests)
         shell: bash
         run: |
           set -euo pipefail
@@ -746,7 +786,7 @@ jobs:
           mv extracted_apk/universal.apk app-release.apk
 
       - name: Upload universal release APK artifact
-        if: inputs.build_apk
+        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.build_apk
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-kotlin-release-apk-${{ env.BUILD_NUMBER }}
@@ -755,6 +795,7 @@ jobs:
           retention-days: 3
 
       - name: Upload Play Store AAB artifact
+        if: inputs.build_variant == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-kotlin-play-aab-${{ env.BUILD_NUMBER }}
@@ -763,6 +804,7 @@ jobs:
           retention-days: 3
 
       - name: Upload Android release to Play Store
+        if: inputs.build_variant == 'release' && inputs.publish_to_play
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
@@ -771,17 +813,17 @@ jobs:
           tracks: ${{ inputs.play_track }}
 
       - name: Authenticate to Google Cloud
-        if: inputs.run_tests
+        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.run_tests
         uses: google-github-actions/auth@v2
         with:
           credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
 
       - name: Set up Cloud SDK
-        if: inputs.run_tests
+        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.run_tests
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Run Firebase Test Lab
-        if: inputs.run_tests
+        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.run_tests
         run: |
           gcloud firebase test android run             --app=app-release.apk             --type=robo             --device=model=MediumPhone.arm,version=34             --timeout=300s             --no-auto-google-login
 
