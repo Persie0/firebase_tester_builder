@@ -1,0 +1,243 @@
+name: Reusable Debug APK Release
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Optional branch/tag/SHA from the caller repository; empty builds the triggering commit'
+        required: false
+        default: ''
+        type: string
+      project_dir:
+        description: 'Optional Android Gradle project directory, detected when omitted'
+        required: false
+        default: ''
+        type: string
+      prerelease:
+        description: 'Publish the generated GitHub Release as a prerelease'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout caller app
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Resolve app metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET_SHA="$(git rev-parse HEAD)"
+          SHORT_SHA="$(git rev-parse --short=8 HEAD)"
+          APP_NAME="${GITHUB_REPOSITORY#*/}"
+          echo "TARGET_SHA=$TARGET_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$SHORT_SHA" >> "$GITHUB_ENV"
+          echo "APP_NAME=$APP_NAME" >> "$GITHUB_ENV"
+
+      - name: Free runner disk space
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Hosted Ubuntu runners contain several large SDKs that are unrelated
+          # to Android builds. Removing them leaves enough room for Flutter,
+          # Gradle and any NDK that AGP legitimately installs for native AARs.
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo rm -rf /usr/local/lib/android/sdk/ndk || true
+          sudo rm -rf /usr/local/lib/android/sdk/cmake || true
+          df -h /
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # The command-line tools are installed by setup-android itself.
+          # Installing the legacy "tools" package also pulls the emulator and
+          # consumes gigabytes that a headless APK build never uses.
+          packages: platform-tools
+
+      - name: Checkout Android project detector
+        uses: actions/checkout@v4
+        with:
+          repository: Persie0/firebase_tester_builder
+          ref: main
+          path: .firebase_builder_detector
+          persist-credentials: false
+          sparse-checkout: |
+            .github/scripts/detect_android_project.py
+          sparse-checkout-cone-mode: false
+
+      - name: Detect project type
+        id: project
+        env:
+          SELECTED_PROJECT_DIR: ${{ inputs.project_dir }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .firebase_builder_detector/.github/scripts/detect_android_project.py \
+            --project-dir "${SELECTED_PROJECT_DIR:-}" \
+            --github-output "$GITHUB_OUTPUT" --github-env "$GITHUB_ENV"
+
+      - name: Setup Flutter
+        if: steps.project.outputs.type == 'flutter'
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Prepare generated Flutter platforms
+        if: steps.project.outputs.type == 'flutter'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f android/app/build.gradle ] && [ ! -f android/app/build.gradle.kts ]; then
+            PROJECT_NAME="$(sed -n 's/^name:[[:space:]]*//p' pubspec.yaml | head -n1 | tr '-' '_')"
+            ORG_ARGS=()
+            if [ -f tool/bootstrap.sh ]; then
+              PROJECT_ORG="$(sed -nE 's/.*flutter create .*--org[[:space:]]+([^[:space:]]+).*/\1/p' tool/bootstrap.sh | head -n1)"
+              if [ -n "$PROJECT_ORG" ]; then
+                ORG_ARGS=(--org "$PROJECT_ORG")
+              fi
+            fi
+            flutter create --platforms=android,ios --project-name="$PROJECT_NAME" "${ORG_ARGS[@]}" --no-pub .
+            if [ -f tool/configure_platforms.dart ]; then
+              dart tool/configure_platforms.dart
+            fi
+            if [ -f tool/set_android_sdk37.dart ]; then
+              dart tool/set_android_sdk37.dart
+            elif [ -f tool/configure_android_sdk.sh ]; then
+              bash tool/configure_android_sdk.sh
+            fi
+            if ! git ls-files --error-unmatch test/widget_test.dart >/dev/null 2>&1; then
+              rm -f test/widget_test.dart
+            fi
+          fi
+
+      - name: Setup standalone Gradle
+        if: steps.project.outputs.type == 'gradle-system'
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.6.0'
+
+      - name: Install requested NDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          NDK_SEARCH_ROOT="$PROJECT_ROOT"
+          if [ "${{ steps.project.outputs.type }}" = 'flutter' ]; then NDK_SEARCH_ROOT='android'; fi
+          if [ ! -d "$NDK_SEARCH_ROOT" ]; then exit 0; fi
+
+          NDK_VERSION="$(grep -RhoE 'ndkVersion[[:space:]]*=?[[:space:]]*["'\''][0-9.]+["'\'']' "$NDK_SEARCH_ROOT" --include='*.gradle' --include='*.gradle.kts' 2>/dev/null | head -n1 | grep -oE '[0-9]+(\.[0-9]+)+' || true)"
+          if [ -z "$NDK_VERSION" ] && find "$NDK_SEARCH_ROOT" -name CMakeLists.txt -print -quit | grep -q .; then
+            NDK_VERSION='28.2.13676358'
+          fi
+          if [ -n "$NDK_VERSION" ]; then
+            sdkmanager "ndk;$NDK_VERSION" >/dev/null
+          fi
+
+      - name: Build Flutter debug APK
+        if: steps.project.outputs.type == 'flutter'
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter build apk --debug
+
+      - name: Build Android debug APK with Gradle wrapper
+        if: steps.project.outputs.type == 'gradle-wrapper'
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x "$PROJECT_ROOT/gradlew"
+          (cd "$PROJECT_ROOT" && ./gradlew :app:assembleDebug --stacktrace)
+
+      - name: Build Android debug APK with standalone Gradle
+        if: steps.project.outputs.type == 'gradle-system'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle -p "$PROJECT_ROOT" :app:assembleDebug --stacktrace
+
+      - name: Select debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f build/app/outputs/flutter-apk/app-debug.apk ]; then
+            APK='build/app/outputs/flutter-apk/app-debug.apk'
+          else
+            APK="$(find "$PROJECT_ROOT/app/build/outputs/apk" -type f -path '*/debug/*.apk' ! -name '*androidTest*' -printf '%s %p\n' | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+          fi
+          if [ -z "${APK:-}" ] || [ ! -f "$APK" ]; then
+            echo '::error::Debug build completed but no debug APK was found.'
+            find . -type f -name '*.apk' -print || true
+            exit 1
+          fi
+          mkdir -p release-out
+          OUT="release-out/${APP_NAME}-debug.apk"
+          cp "$APK" "$OUT"
+          echo "APK_PATH=$OUT" >> "$GITHUB_ENV"
+          ls -lh "$OUT"
+
+      - name: Upload workflow artifact
+        id: artifact_upload
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APP_NAME }}-debug-${{ env.SHORT_SHA }}
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 3
+
+      - name: Note artifact upload fallback
+        if: steps.artifact_upload.outcome == 'failure'
+        shell: bash
+        run: |
+          echo '::warning::Actions artifact upload failed; continuing with GitHub Release publishing. This commonly happens when the Actions artifact-storage quota is full.'
+          echo '### Workflow artifact unavailable' >> "$GITHUB_STEP_SUMMARY"
+          echo 'The APK still continues to GitHub Release publishing; Actions artifact upload failed (for example because artifact storage is full).' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish debug GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRERELEASE: ${{ inputs.prerelease }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="debug-${SHORT_SHA}"
+          TITLE="${APP_NAME} debug ${SHORT_SHA}"
+          NOTES="Automated debug APK for ${GITHUB_REPOSITORY}@${TARGET_SHA}. Built by the reusable Persie0/firebase_tester_builder debug workflow. This is a debug/test build, not a production release."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$APK_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            EXTRA=()
+            if [ "$PRERELEASE" = 'true' ]; then EXTRA+=(--prerelease); fi
+            gh release create "$TAG" "$APK_PATH" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$TARGET_SHA" \
+              --title "$TITLE" \
+              --notes "$NOTES" \
+              "${EXTRA[@]}"
+          fi
+
+          RELEASE_URL="$(gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json url --jq .url)"
+          echo "### Debug APK published" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Repository: $GITHUB_REPOSITORY" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Commit: $TARGET_SHA" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Release: $RELEASE_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release: $RELEASE_URL"

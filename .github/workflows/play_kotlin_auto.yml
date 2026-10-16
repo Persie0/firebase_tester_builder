@@ -1,5 +1,5 @@
 name: Kotlin Play Store Automation
-run-name: Build Kotlin ${{ inputs.app }} (${{ inputs.build_variant }})${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
+run-name: Deploy Kotlin ${{ inputs.app }}${{ inputs.branch != '' && format(' ({0})', inputs.branch) || '' }} by @${{ github.actor }}
 
 on:
   workflow_dispatch:
@@ -17,14 +17,6 @@ on:
           - video_upscaler_android
           - SkipSilencePlayer
         default: Audiobooster
-      build_variant:
-        description: 'Native Android build variant'
-        required: true
-        type: choice
-        options:
-          - release
-          - debug
-        default: release
       publish_to_play:
         description: 'Upload release to Google Play (disable for apps without Play signing/setup)'
         required: false
@@ -58,7 +50,7 @@ on:
         default: internal
 
 concurrency:
-  group: android-kotlin-build-${{ inputs.app }}
+  group: android-kotlin-release-${{ inputs.app }}
   cancel-in-progress: true
 
 jobs:
@@ -76,7 +68,7 @@ jobs:
       # Share the already-owned Audiobooster upload identity without
       # committing another copy of its private key to this Android repo.
       - name: Checkout Audiobooster signing identity
-        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.app == 'video_upscaler_android' && inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/Audiobooster'
@@ -89,7 +81,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Install Video Upscaler upload signing files
-        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.app == 'video_upscaler_android' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -115,7 +107,7 @@ jobs:
           echo 'Prepared existing Audiobooster upload certificate for Video Upscaler.'
 
       - name: Prepare Resistor Scanner signing identity
-        if: inputs.app == 'resistor-scanner-android' && inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.app == 'resistor-scanner-android' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -131,7 +123,7 @@ jobs:
           echo 'Prepared the existing Resistor Scanner Google Play signing identity.'
 
       - name: Checkout release policy
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/firebase_tester_builder'
@@ -173,7 +165,7 @@ jobs:
       # Match the Flutter release workflows: use the current legal content at
       # release time, not the possibly outdated copy committed in each app.
       - name: Checkout latest EULA repository
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/Persie0.github.io'
@@ -184,7 +176,7 @@ jobs:
             static
 
       - name: Refresh bundled Kotlin EULA and static assets
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -211,7 +203,7 @@ jobs:
           rm -rf "$SOURCE"
 
       - name: Resolve GlitchTip project from app DSN
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         env:
           KOTLIN_APP: ${{ inputs.app }}
@@ -355,7 +347,7 @@ jobs:
           fi
 
       - name: Set keystore secrets
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -368,7 +360,7 @@ jobs:
           fi
 
       - name: Configure keystore
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -413,7 +405,7 @@ jobs:
           echo "KEYSTORE_PATH=$(realpath "$KEYSTORE_PATH")" >> "$GITHUB_ENV"
 
       - name: Verify Video Upscaler upload signing identity
-        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.app == 'video_upscaler_android' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -466,7 +458,7 @@ jobs:
           } >> "$PROPS"
 
       - name: Run Kotlin unit tests and release lint
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -474,11 +466,11 @@ jobs:
           "$GRADLE_CMD" :app:testDebugUnitTest :app:lintRelease --stacktrace
 
       - name: Install Play API helper
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         run: python -m pip install --quiet google-auth requests
 
       - name: Resolve next Play versionCode
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         env:
           SERVICE_ACCOUNT_JSON: ${{ secrets.SERVICE_ACCOUNT_JSON }}
         shell: bash
@@ -574,7 +566,7 @@ jobs:
           PY
 
       - name: Apply release version to Gradle app
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -617,31 +609,7 @@ jobs:
           print(f'Configured {path} with versionCode={code}, versionName={name}')
           PY
 
-      - name: Build Kotlin debug APK
-        if: inputs.build_variant == 'debug'
-        shell: bash
-        run: |
-          set -euo pipefail
-          (cd "$PROJECT_ROOT" && "$GRADLE_CMD" :app:testDebugUnitTest :app:assembleDebug --stacktrace)
-          APK="$PROJECT_ROOT/app/build/outputs/apk/debug/app-debug.apk"
-          if [ ! -f "$APK" ]; then
-            echo "::error::Expected Kotlin debug APK not found at $APK"
-            find "$PROJECT_ROOT/app/build/outputs/apk" -name '*.apk' -type f -print || true
-            exit 1
-          fi
-          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
-
-      - name: Upload Kotlin debug APK
-        if: inputs.build_variant == 'debug'
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ inputs.app }}-kotlin-debug-apk-${{ github.run_number }}
-          path: ${{ env.APK_PATH }}
-          if-no-files-found: error
-          retention-days: 3
-
       - name: Build Kotlin release app bundle
-        if: inputs.build_variant == 'release'
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms2g -Xmx10g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dandroid.r8.jvmargs='-Xmx6g'"
         shell: bash
@@ -694,14 +662,14 @@ jobs:
           echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
 
       - name: Enforce global R8 25% gate
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
           python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py "$AAB_PATH"
 
       - name: Run app-specific R8 verifier
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -713,7 +681,7 @@ jobs:
 
       # Equivalent to Flutter debug-symbol upload, but Android uses R8 mapping.txt.
       - name: Sentry / GlitchTip R8 mapping upload
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         continue-on-error: true
         env:
           GLITCHTIP_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
@@ -761,11 +729,11 @@ jobs:
           glitchtip-cli debug-files upload "$MAPPING"
 
       - name: Download bundletool
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         run: wget -q https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar -O bundletool.jar
 
       - name: Verify built versionCode
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
@@ -777,7 +745,7 @@ jobs:
           echo "Verified AAB versionCode $ACTUAL"
 
       - name: Extract universal APK
-        if: inputs.build_variant == 'release' && inputs.publish_to_play && (inputs.build_apk || inputs.run_tests)
+        if: inputs.publish_to_play && (inputs.build_apk || inputs.run_tests)
         shell: bash
         run: |
           set -euo pipefail
@@ -786,7 +754,7 @@ jobs:
           mv extracted_apk/universal.apk app-release.apk
 
       - name: Upload universal release APK artifact
-        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.build_apk
+        if: inputs.publish_to_play && inputs.build_apk
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-kotlin-release-apk-${{ env.BUILD_NUMBER }}
@@ -795,7 +763,6 @@ jobs:
           retention-days: 3
 
       - name: Upload Play Store AAB artifact
-        if: inputs.build_variant == 'release'
         uses: actions/upload-artifact@v4
         with:
           name: ${{ inputs.app }}-kotlin-play-aab-${{ env.BUILD_NUMBER }}
@@ -804,7 +771,7 @@ jobs:
           retention-days: 3
 
       - name: Upload Android release to Play Store
-        if: inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.publish_to_play
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
@@ -813,17 +780,17 @@ jobs:
           tracks: ${{ inputs.play_track }}
 
       - name: Authenticate to Google Cloud
-        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.run_tests
+        if: inputs.publish_to_play && inputs.run_tests
         uses: google-github-actions/auth@v2
         with:
           credentials_json: '${{ secrets.GCP_CREDENTIALS }}'
 
       - name: Set up Cloud SDK
-        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.run_tests
+        if: inputs.publish_to_play && inputs.run_tests
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Run Firebase Test Lab
-        if: inputs.build_variant == 'release' && inputs.publish_to_play && inputs.run_tests
+        if: inputs.publish_to_play && inputs.run_tests
         run: |
           gcloud firebase test android run             --app=app-release.apk             --type=robo             --device=model=MediumPhone.arm,version=34             --timeout=300s             --no-auto-google-login
 
