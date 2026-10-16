@@ -76,7 +76,7 @@ jobs:
       # Share the already-owned Audiobooster upload identity without
       # committing another copy of its private key to this Android repo.
       - name: Checkout Audiobooster signing identity
-        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play && inputs.build_variant == 'release' && inputs.publish_to_play
+        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/Audiobooster'
@@ -89,7 +89,7 @@ jobs:
           sparse-checkout-cone-mode: false
 
       - name: Install Video Upscaler upload signing files
-        if: inputs.app == 'video_upscaler_android'
+        if: inputs.app == 'video_upscaler_android' && inputs.build_variant == 'release' && inputs.publish_to_play
         shell: bash
         run: |
           set -euo pipefail
