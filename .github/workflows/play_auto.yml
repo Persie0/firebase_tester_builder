@@ -219,7 +219,16 @@ jobs:
             echo 'android.r8.jvmargs=-Xmx6g -XX:+UseParallelGC'
           } >> android/gradle.properties
 
-      - run: flutter pub get
+      - name: Resolve Flutter dependencies (refresh Appodeal fork)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -Eq '^[[:space:]]*stack_appodeal_flutter:' pubspec.yaml; then
+            # A git ref such as main is still frozen by pubspec.lock until upgraded.
+            flutter pub upgrade stack_appodeal_flutter
+          else
+            flutter pub get
+          fi
 
       - name: Flutter analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
