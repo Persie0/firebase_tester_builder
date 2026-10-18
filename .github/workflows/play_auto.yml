@@ -391,6 +391,7 @@ jobs:
             flutter build appbundle "${DART_DEFINE_ARGS[@]}" \
               --obfuscate \
               --split-debug-info=./build \
+              --extra-gen-snapshot-options=--save-obfuscation-map=build/dart-obfuscation-map.json \
               --build-name="$BUILD_NAME" \
               --build-number="$BUILD_NUMBER" 2>&1 | tee "$log_file"
             status=${PIPESTATUS[0]}
@@ -440,8 +441,20 @@ jobs:
             echo 'No app-specific R8 verifier found; global 25% gate already passed.'
           fi
 
+      # Preserve exactly the symbols and obfuscation map for this AAB, so
+      # release crashes can also be symbolicated manually if a server upload fails.
+      - name: Archive Flutter release symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-android-symbols-${{ env.BUILD_NUMBER }}
+          path: |
+            build/app.android-*.symbols
+            build/dart-obfuscation-map.json
+          if-no-files-found: error
+          retention-days: 30
+
+      # A successful Play release must never silently omit its debug symbols.
       - name: Sentry / GlitchTip upload
-        continue-on-error: true
         env:
           SENTRY_COM_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           GLITCHTIP_AUTH_TOKEN: ${{ secrets.GLITCHTIP_AUTH_TOKEN }}
@@ -504,8 +517,10 @@ jobs:
             echo "Uploading ${#SYMBOL_FILES[@]} Flutter debug symbol file(s) to GlitchTip."
             for symbol_file in "${SYMBOL_FILES[@]}"; do
               ls -lh "$symbol_file"
-              glitchtip-cli debug-files upload "$symbol_file"
+              glitchtip-cli debug-files check "$symbol_file"
+              glitchtip-cli debug-files upload "$symbol_file" --org "$SENTRY_ORG" --project "$SENTRY_PROJECT"
             done
+            echo "Flutter debug-symbol upload completed for ${{ inputs.app }} build $BUILD_NUMBER" >> "$GITHUB_STEP_SUMMARY"
           else
             if [ -z "${SENTRY_COM_AUTH_TOKEN:-}" ]; then
               echo '::error::SENTRY_AUTH_TOKEN is required for sentry.io debug-symbol uploads.'
