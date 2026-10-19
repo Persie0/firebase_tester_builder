@@ -1,0 +1,3 @@
+app=resistor-scanner-android
+owner=Persie0
+requested_sha=8d4b0c7bde5261f830910544f1a9bf7c873ad7a6
