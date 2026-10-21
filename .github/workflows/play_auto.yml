@@ -30,6 +30,7 @@ on:
           - screendetector
           - norwegian_yoyillo
           - ImagePdfScaler
+          - uniminder
         default: noise_remover
       build_apk:
         description: 'Build Universal APK (Telegram upload disabled)'
@@ -65,7 +66,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: 'Persie0/${{ inputs.app }}'
+          # The Uniminder app is stored in Persie0/student (not Persie0/uniminder).
+          repository: ${{ inputs.app == 'uniminder' && 'Persie0/student' || format('Persie0/{0}', inputs.app) }}
           token: ${{ secrets.GH_TOKEN }}
           ref: ${{ inputs.branch }}
 
