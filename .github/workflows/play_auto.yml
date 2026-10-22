@@ -232,6 +232,38 @@ jobs:
             flutter pub get
           fi
 
+      # Stable flutter_inappwebview_android 1.1.3 predates AGP 9, which
+      # rejects the non-optimized built-in ProGuard file. The beta release
+      # regressed TU Wien SSO, so keep the stable runtime and patch ONLY
+      # its ephemeral CI dependency Gradle file. R8 stays fully enabled.
+      - name: Fix Uniminder stable WebView AGP 9 ProGuard config
+        if: inputs.app == 'uniminder'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          pub_cache = Path(os.environ.get('PUB_CACHE') or Path.home() / '.pub-cache')
+          files = list((pub_cache / 'hosted').glob(
+              '*/flutter_inappwebview_android-1.1.3/android/build.gradle'
+          ))
+          if len(files) != 1:
+              raise SystemExit(f'Expected stable WebView plugin 1.1.3, found {files}')
+          file = files[0]
+          current = file.read_text(encoding='utf-8')
+          before = "getDefaultProguardFile('proguard-android.txt')"
+          after = "getDefaultProguardFile('proguard-android-optimize.txt')"
+          if before in current:
+              file.write_text(current.replace(before, after), encoding='utf-8')
+              print(f'Patched stable WebView ProGuard setting: {file}')
+          elif after in current:
+              print(f'Stable WebView already AGP9-compatible: {file}')
+          else:
+              raise SystemExit(f'Unexpected WebView ProGuard Gradle configuration: {file}')
+          PY
+
       - name: Flutter analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - name: Flutter test
