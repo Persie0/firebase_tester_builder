@@ -609,6 +609,48 @@ jobs:
           print(f'Configured {path} with versionCode={code}, versionName={name}')
           PY
 
+      - name: Configure Play native debug symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          import re
+          from pathlib import Path
+
+          # Flutter and native Kotlin builds use different app module locations.
+          if os.environ.get("BUILD_FILE"):
+              path = Path(os.environ["BUILD_FILE"])
+          else:
+              candidates = [
+                  Path("android/app/build.gradle.kts"),
+                  Path("android/app/build.gradle"),
+              ]
+              path = next((candidate for candidate in candidates if candidate.is_file()), None)
+
+          if path is None or not path.is_file():
+              raise SystemExit("::error::Android app Gradle build file not found")
+
+          source = path.read_text(encoding="utf-8")
+          without_comments = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+          without_comments = re.sub(r"(?m)^\s*//[^\n]*$", "", without_comments)
+          existing = re.search(
+              r"\bdebugSymbolLevel\b\s*(?:=\s*|\s+)[\"'](?:FULL|SYMBOL_TABLE)[\"']",
+              without_comments,
+          )
+          if existing:
+              print(f"Existing native symbol setting preserved: {path}")
+          else:
+              quote = '"' if path.suffix == ".kts" else "'"
+              statement = (
+                  "\n// CI: attach native crash symbols to the Google Play app bundle.\n"
+                  f"android.buildTypes.getByName({quote}release{quote})"
+                  f".ndk.debugSymbolLevel = {quote}SYMBOL_TABLE{quote}\n"
+              )
+              path.write_text(source + statement, encoding="utf-8")
+              print(f"Enabled native SYMBOL_TABLE debug symbols in {path}")
+          PY
+
       - name: Build Kotlin release app bundle
         env:
           GRADLE_OPTS: "-Dorg.gradle.jvmargs='-Xms2g -Xmx10g -XX:+UseParallelGC' -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dandroid.r8.jvmargs='-Xmx6g'"
@@ -660,6 +702,44 @@ jobs:
             exit 1
           fi
           echo "AAB_PATH=$AAB_PATH" >> "$GITHUB_ENV"
+
+      - name: Inspect native debug symbols in Play bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          bundle = Path(os.environ.get("AAB_PATH") or "build/app/outputs/bundle/release/app-release.aab")
+          if not bundle.is_file():
+              raise SystemExit(f"::error::AAB missing for native-symbol check: {bundle}")
+
+          with ZipFile(bundle) as archive:
+              entries = archive.namelist()
+
+          symbol_prefix = "BUNDLE-METADATA/com.android.tools.build.debugsymbols/"
+          symbols = [
+              entry for entry in entries
+              if entry.startswith(symbol_prefix) and entry.endswith(".dbg")
+          ]
+          native_libraries = [
+              entry for entry in entries
+              if entry.endswith(".so") and "/lib/" in f"/{entry}"
+          ]
+
+          if symbols:
+              print(f"Play AAB includes {len(symbols)} native debug symbol file(s).")
+          elif native_libraries:
+              print(
+                  "::warning::AAB contains native libraries but no embedded native "
+                  "debug symbols. Upstream/prebuilt .so files may already be stripped; "
+                  "check Gradle's native debug metadata extraction messages."
+              )
+          else:
+              print("No native libraries found in AAB; native symbols are not required.")
+          PY
 
       - name: Enforce global R8 25% gate
         if: inputs.publish_to_play
