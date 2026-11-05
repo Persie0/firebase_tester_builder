@@ -28,8 +28,9 @@ class ScreendetectorBidMachineR8Tests(unittest.TestCase):
     def test_only_screendetector_executes_override(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
         i = workflow.index("      - name: " + NAME)
-        next_step = workflow.index("      - name: Flutter analyze", i)
+        next_step = workflow.index("      - name: Configure Play native debug symbols", i)
         self.assertIn("if: inputs.app == 'screendetector'", workflow[i:next_step])
+        self.assertLess(workflow.index("      - name: Resolve next Play versionCode"), i)
         self.assertLess(next_step, workflow.index("      - name: Build app bundle"))
 
     def test_override_preserves_vungle_and_only_targets_named_gms_rule(self):
