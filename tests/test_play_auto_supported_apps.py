@@ -18,7 +18,9 @@ class PlayAutoSupportedAppsTest(unittest.TestCase):
         self.assertIn("          - ImagePdfScaler\n", self.text)
 
     def test_selected_app_uses_generic_repository_checkout(self):
-        self.assertIn("repository: 'Persie0/${{ inputs.app }}'", self.text)
+        # Uniminder is deliberately sourced from Persie0/student.
+        self.assertIn("inputs.app == 'uniminder' && 'Persie0/student'", self.text)
+        self.assertIn("format('Persie0/{0}', inputs.app)", self.text)
 
 
 if __name__ == "__main__":
