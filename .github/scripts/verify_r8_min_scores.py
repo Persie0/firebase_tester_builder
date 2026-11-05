@@ -5,6 +5,9 @@ import zipfile
 from pathlib import Path
 
 MIN_SCORE = 25.0
+# Google Play's February 2027 minimum applies to apps with >10 MB DEX code.
+# Keep the 25% gate strictly enforced for apps above this documented size.
+APP_DEX_MINIMUM_BYTES = 10_000_000
 METADATA = "BUNDLE-METADATA/com.android.tools/r8.json"
 DEFAULT_AAB = Path("build/app/outputs/bundle/release/app-release.aab")
 
@@ -50,6 +53,11 @@ def main():
         with zipfile.ZipFile(aab) as bundle:
             try:
                 raw = bundle.read(METADATA)
+                dex_bytes = sum(
+                    entry.file_size
+                    for entry in bundle.infolist()
+                    if "/dex/" in entry.filename and entry.filename.endswith(".dex")
+                )
             except KeyError:
                 return fail(f"Mandatory R8 metadata {METADATA} is missing from {aab}")
     except zipfile.BadZipFile:
@@ -59,6 +67,16 @@ def main():
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
         return fail(f"R8 metadata {METADATA} is invalid JSON: {exc}")
+
+    if dex_bytes == 0:
+        return fail("Release AAB does not contain measurable DEX code")
+
+    # .dex entries are counted by their uncompressed size, across all modules.
+    # This is the actual DEX code footprint, not the size of the AAB or native libs.
+    enforce_minimum = dex_bytes > APP_DEX_MINIMUM_BYTES
+    print(f"DEX code: {dex_bytes / 1_000_000:.3f} MB ({dex_bytes:,} bytes)")
+    if not enforce_minimum:
+        print("Small app: below Google Play's >10 MB DEX applicability threshold.")
 
     metrics_out = Path("build/r8-metrics.json")
     metrics_out.parent.mkdir(parents=True, exist_ok=True)
@@ -84,8 +102,16 @@ def main():
             continue
 
         print(f"{name}: {score:.2f}% available to R8")
-        if score < MIN_SCORE:
-            failures.append(f"{name} score {score:.2f}% is below {MIN_SCORE:.2f}%")
+        if not 0.0 <= score <= 100.0:
+            failures.append(f"{name} score is out of range: {score!r}")
+        elif score < MIN_SCORE:
+            if enforce_minimum:
+                failures.append(f"{name} score {score:.2f}% is below {MIN_SCORE:.2f}%")
+            else:
+                print(
+                    f"::warning::{name} score {score:.2f}% is below {MIN_SCORE:.2f}%, "
+                    "but this app's DEX size is below Google's enforcement threshold."
+                )
 
     if failures:
         print(
@@ -97,7 +123,11 @@ def main():
             print(f"- {failure}", file=sys.stderr)
         return 1
 
-    print("R8 release gate passed: all three scores are >= 25.00%.")
+    if enforce_minimum:
+        print("R8 release gate passed: all three scores are >= 25.00%.")
+    else:
+        print("R8 release gate passed: all R8 dimensions enabled and metadata valid; "
+              "DEX size below 10 MB.")
     return 0
 
 
