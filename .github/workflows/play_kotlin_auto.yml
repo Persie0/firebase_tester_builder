@@ -755,8 +755,8 @@ jobs:
           name: r8-diagnostics-${{ inputs.app }}-${{ env.BUILD_NUMBER }}
           path: |
             build/r8-metrics.json
-            build/app/outputs/mapping/release/configanalyzer.html
-            build/app/reports/r8/r8-config-analyzer-release.html
+            ${{ env.PROJECT_ROOT }}/app/build/outputs/mapping/release/configanalyzer.html
+            ${{ env.PROJECT_ROOT }}/app/build/reports/r8/r8-config-analyzer-release.html
           if-no-files-found: warn
           retention-days: 3
 
