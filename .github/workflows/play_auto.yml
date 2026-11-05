@@ -265,14 +265,14 @@ jobs:
           original_check = "boolean containsVungleRules = original.contains('com.vungle.ads')"
           replace_exact(
               original_check,
-              original_check + "\\n        boolean containsBidMachineRules = original.contains('io.bidmachine.')",
+              original_check + "\n        boolean containsBidMachineRules = original.contains('io.bidmachine.')",
           )
           extra_rule = (
-              "            if (containsBidMachineRules &&\\n"
-              "                    rule == '-keep class com.google.android.gms.common.** { *; }') {\\n"
-              "                patched << '# Narrowed legacy BidMachine GMS keep: use upstream GMS consumer rules'\\n"
-              "                return\\n"
-              "            }\\n\\n"
+              "            if (containsBidMachineRules &&\n"
+              "                    rule == '-keep class com.google.android.gms.common.** { *; }') {\n"
+              "                patched << '# Narrowed legacy BidMachine GMS keep: use upstream GMS consumer rules'\n"
+              "                return\n"
+              "            }\n\n"
           )
           replace_exact('            if (containsVungleRules &&', extra_rule + '            if (containsVungleRules &&')
           path.write_text(source, encoding='utf-8')
