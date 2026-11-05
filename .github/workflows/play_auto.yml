@@ -232,53 +232,6 @@ jobs:
             flutter pub get
           fi
 
-      # Scoped to screendetector: its R8 analyzer traced 5,291 protected
-      # GMS references to a broad rule in BidMachine ads-3.7.1. The GMS
-      # dependencies ship their own targeted consumer rules. Preserve every
-      # SDK/adapter and all other rules, including the proven Vungle fix.
-      - name: Optimize redundant BidMachine GMS consumer keep rule
-        if: inputs.app == 'screendetector'
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os
-          from pathlib import Path
-
-          cache = Path(os.environ.get('PUB_CACHE', str(Path.home() / '.pub-cache'))) / 'git'
-          candidates = list(cache.glob('*/android/appodeal-r8-optimizer.gradle'))
-          if len(candidates) != 1:
-              raise SystemExit(f'Expected one Appodeal R8 optimizer, found {len(candidates)}')
-          path = candidates[0]
-          source = path.read_text(encoding='utf-8')
-
-          def replace_exact(old, new):
-              global source
-              if source.count(old) != 1:
-                  raise SystemExit(f'Appodeal fork changed: missing or duplicate patch anchor: {old!r}')
-              source = source.replace(old, new)
-
-          replace_exact(
-              "return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle')",
-              "return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle') || input.name == 'ads-3.7.1.aar'",
-          )
-          original_check = "boolean containsVungleRules = original.contains('com.vungle.ads')"
-          replace_exact(
-              original_check,
-              original_check + "\n        boolean containsBidMachineRules = original.contains('io.bidmachine.')",
-          )
-          extra_rule = (
-              "            if (containsBidMachineRules &&\n"
-              "                    rule == '-keep class com.google.android.gms.common.** { *; }') {\n"
-              "                patched << '# Narrowed legacy BidMachine GMS keep: use upstream GMS consumer rules'\n"
-              "                return\n"
-              "            }\n\n"
-          )
-          replace_exact('            if (containsVungleRules &&', extra_rule + '            if (containsVungleRules &&')
-          path.write_text(source, encoding='utf-8')
-          print('Applied screendetector-only BidMachine GMS optimization to local Flutter pub cache')
-          PY
-
       - name: Flutter analyze
         run: flutter analyze --no-fatal-warnings --no-fatal-infos
       - name: Flutter test
@@ -412,6 +365,53 @@ jobs:
           print(f'Play track versionCodes: {sorted(set(track_codes))[-10:]}')
           print(f'Local pubspec build number: {local_build}')
           print(f'Next Android versionCode: {next_code}')
+          PY
+
+      # Scoped to screendetector: its R8 analyzer traced 5,291 protected
+      # GMS references to a broad rule in BidMachine ads-3.7.1. The GMS
+      # dependencies ship their own targeted consumer rules. Preserve every
+      # SDK/adapter and all other rules, including the proven Vungle fix.
+      - name: Optimize redundant BidMachine GMS consumer keep rule
+        if: inputs.app == 'screendetector'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          cache = Path(os.environ.get('PUB_CACHE', str(Path.home() / '.pub-cache'))) / 'git'
+          candidates = list(cache.glob('*/android/appodeal-r8-optimizer.gradle'))
+          if len(candidates) != 1:
+              raise SystemExit(f'Expected one Appodeal R8 optimizer, found {len(candidates)}')
+          path = candidates[0]
+          source = path.read_text(encoding='utf-8')
+
+          def replace_exact(old, new):
+              global source
+              if source.count(old) != 1:
+                  raise SystemExit(f'Appodeal fork changed: missing or duplicate patch anchor: {old!r}')
+              source = source.replace(old, new)
+
+          replace_exact(
+              "return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle')",
+              "return input.name.toLowerCase(java.util.Locale.ROOT).contains('vungle') || input.name == 'ads-3.7.1.aar'",
+          )
+          original_check = "boolean containsVungleRules = original.contains('com.vungle.ads')"
+          replace_exact(
+              original_check,
+              original_check + "\n        boolean containsBidMachineRules = original.contains('io.bidmachine.')",
+          )
+          extra_rule = (
+              "            if (containsBidMachineRules &&\n"
+              "                    rule == '-keep class com.google.android.gms.common.** { *; }') {\n"
+              "                patched << '# Narrowed legacy BidMachine GMS keep: use upstream GMS consumer rules'\n"
+              "                return\n"
+              "            }\n\n"
+          )
+          replace_exact('            if (containsVungleRules &&', extra_rule + '            if (containsVungleRules &&')
+          path.write_text(source, encoding='utf-8')
+          print('Applied screendetector-only BidMachine GMS optimization to local Flutter pub cache')
           PY
 
       - name: Configure Play native debug symbols
