@@ -75,7 +75,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: 'Persie0/firebase_tester_builder'
-          ref: bd526e0abc13b330e0bff5b8bde2b82ce48b67d2
+          ref: e7da31d4326c195e05d203be769115e8b31f719d
           path: .firebase_builder
           sparse-checkout: |
             .github/scripts/verify_r8_min_scores.py
@@ -511,6 +511,18 @@ jobs:
           set -euo pipefail
           python3 .firebase_builder/.github/scripts/verify_r8_min_scores.py \
             build/app/outputs/bundle/release/app-release.aab
+
+      - name: Preserve R8 diagnostic report on gate failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-diagnostics-${{ inputs.app }}-${{ env.BUILD_NUMBER }}
+          path: |
+            build/r8-metrics.json
+            build/app/outputs/mapping/release/configanalyzer.html
+            build/app/reports/r8/r8-config-analyzer-release.html
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Run app-specific R8 verifier
         shell: bash
